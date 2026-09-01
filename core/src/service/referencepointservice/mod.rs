@@ -17,7 +17,7 @@ impl ReferencePointService {
         })
     }
 
-    pub async fn create_reference_point(
+    pub async fn create(
         &self,
         request: &ReferencePointCreateRequest,
     ) -> Result<ReferencePoint, Error> {
@@ -33,7 +33,7 @@ impl ReferencePointService {
         Ok(WmiReferencePointService::reference_point(result)?)
     }
 
-    pub async fn destroy_reference_point(
+    pub async fn destroy(
         &self,
         reference_point: &ReferencePoint,
     ) -> Result<(), Error> {
@@ -53,7 +53,7 @@ impl ReferencePointService {
         Ok(())
     }
 
-    pub async fn cleanup_reference_point(
+    pub async fn cleanup(
         &self,
         reference_point: &ReferencePoint,
         retain_for_incremental: bool,
@@ -61,7 +61,7 @@ impl ReferencePointService {
         if retain_for_incremental {
             self.remove_associated_data(reference_point).await
         } else {
-            self.destroy_reference_point(reference_point).await
+            self.destroy(reference_point).await
         }
     }
 }

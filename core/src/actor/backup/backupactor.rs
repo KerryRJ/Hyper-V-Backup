@@ -217,7 +217,7 @@ impl BackupActor {
             runtime.block_on(async move {
                 let reference_points = ReferencePointService::new().await?;
                 let reference_point = reference_points
-                    .create_reference_point(&reference_point_request)
+                    .create(&reference_point_request)
                     .await?;
                 let backup_result = async {
                     tokio::fs::create_dir_all(&request.destination).await?;
@@ -225,7 +225,7 @@ impl BackupActor {
                 }
                 .await;
                 let cleanup_result = reference_points
-                    .cleanup_reference_point(&reference_point, options.retain_for_incremental)
+                    .cleanup(&reference_point, options.retain_for_incremental)
                     .await;
                 match (backup_result, cleanup_result) {
                     (Err(error), _) => Err(error),

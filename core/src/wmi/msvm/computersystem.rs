@@ -6,6 +6,7 @@ use wmi::WMIDateTime;
 #[derive(Clone, Debug, Default, Deserialize)]
 #[serde(rename = "Msvm_ComputerSystem")]
 pub(crate) struct ComputerSystem {
+    pub(crate) __Path: String,
     pub(crate) AvailableRequestedStates: Option<Vec<u16>>,
     pub(crate) Caption: Option<String>, // "Virtual Machine" or "Hosting Computer System"
     pub(crate) CommunicationStatus: Option<u16>,

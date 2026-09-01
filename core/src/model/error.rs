@@ -12,6 +12,8 @@ pub enum Error {
     VirtualMachineNotFound(VmId),
     #[error("Invalid backup request: {0}")]
     InvalidBackupRequest(&'static str),
+    #[error("Invalid backup schedule: {0}")]
+    InvalidBackupSchedule(&'static str),
     #[error("Backup not found: {0}")]
     BackupNotFound(uuid::Uuid),
     #[error("Backup operation was cancelled")]

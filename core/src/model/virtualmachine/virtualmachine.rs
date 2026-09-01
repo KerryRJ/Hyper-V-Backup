@@ -14,6 +14,7 @@ use crate::wmi::msvm::computersystem;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VirtualMachine {
+    system_path: String,
     available_requested_states: Option<Vec<requestedstate::RequestedState>>,
     caption: Option<String>,
     communication_status: Option<communicationstate::CommunicationStatus>,
@@ -57,6 +58,10 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
+    pub fn system_path(&self) -> &str {
+        &self.system_path
+    }
+
     pub fn available_requested_states(&self) -> Option<&[requestedstate::RequestedState]> {
         self.available_requested_states.as_deref()
     }
@@ -185,6 +190,7 @@ impl TryFrom<computersystem::ComputerSystem> for VirtualMachine {
 
     fn try_from(computer_system: computersystem::ComputerSystem) -> Result<Self, Self::Error> {
         Ok(Self {
+            system_path: computer_system.__Path,
             available_requested_states: computer_system
                 .AvailableRequestedStates
                 .map(|states| {

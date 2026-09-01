@@ -8,7 +8,8 @@ mod statusstore;
 
 pub use backupfailure::BackupFailure;
 pub use backupid::BackupId;
-pub use backuprequest::BackupRequest;
+pub use backuprequest::{BackupRequest, ReferencePointRequest};
+pub use crate::model::{BackupSchedule, ScheduleId};
 pub use backupservice::BackupService;
 pub use backupstate::BackupState;
 pub use backupstatus::BackupStatus;

@@ -5,8 +5,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::model::Error;
 use crate::service::backup::{
-    BackupFailure, BackupId, BackupRequest, BackupState, BackupStatus, StatusStore,
+    BackupFailure, BackupId, BackupRequest, BackupState, BackupStatus, ReferencePointRequest,
+    StatusStore,
 };
+use crate::service::referencepointservice::ReferencePointService;
 
 use super::command::Command;
 
@@ -49,6 +51,34 @@ impl BackupActor {
         Ok(id)
     }
 
+    pub(crate) async fn start_with_reference_point(
+        &self,
+        request: BackupRequest,
+        reference_point: ReferencePointRequest,
+    ) -> Result<BackupId, Error> {
+        let id = BackupId::new_v4();
+        self.statuses.write().await.insert(
+            id,
+            BackupStatus {
+                state: BackupState::Queued,
+                progress: 0,
+            },
+        );
+        self.cancellations
+            .write()
+            .await
+            .insert(id, CancellationToken::new());
+        self.sender
+            .send(Command::StartWithReferencePoint {
+                id,
+                request,
+                reference_point,
+            })
+            .await
+            .map_err(|_| Error::InvalidBackupRequest("backup actor is stopped"))?;
+        Ok(id)
+    }
+
     pub(crate) async fn status(&self, id: BackupId) -> Option<BackupStatus> {
         self.statuses.read().await.get(&id).cloned()
     }
@@ -71,6 +101,11 @@ impl BackupActor {
         while let Some(command) = receiver.recv().await {
             match command {
                 Command::Start { id, request } => self.process(id, request).await,
+                Command::StartWithReferencePoint {
+                    id,
+                    request,
+                    reference_point,
+                } => self.process_with_reference_point(id, request, reference_point).await,
             }
         }
         Ok(())
@@ -115,6 +150,92 @@ impl BackupActor {
         self.set_status(id, BackupStatus { state, progress: 0 })
             .await;
         self.cancellations.write().await.remove(&id);
+    }
+
+    async fn process_with_reference_point(
+        &self,
+        id: BackupId,
+        request: BackupRequest,
+        reference_point_request: ReferencePointRequest,
+    ) {
+        self.set_status(
+            id,
+            BackupStatus {
+                state: BackupState::Running,
+                progress: 0,
+            },
+        )
+        .await;
+        let cancellation = self.cancellations.read().await.get(&id).cloned();
+        let Some(cancellation) = cancellation else {
+            self.set_status(
+                id,
+                BackupStatus {
+                    state: BackupState::Failed(BackupFailure::Internal),
+                    progress: 0,
+                },
+            )
+            .await;
+            return;
+        };
+
+        let result = async {
+            if cancellation.is_cancelled() {
+                return Err(Error::BackupCancelled);
+            }
+            Self::run_reference_point_backup(request, reference_point_request).await
+        }
+        .await;
+
+        let state = match result {
+            Ok(()) => BackupState::Completed,
+            Err(Error::BackupCancelled) => BackupState::Cancelled,
+            Err(error) => BackupState::Failed(Self::failure_for(error)),
+        };
+        self.set_status(id, BackupStatus { state, progress: 0 })
+            .await;
+        self.cancellations.write().await.remove(&id);
+    }
+
+    async fn run_reference_point_backup(
+        request: BackupRequest,
+        reference_point_request: ReferencePointRequest,
+    ) -> Result<(), Error> {
+        tokio::task::spawn_blocking(move || {
+            let runtime = tokio::runtime::Builder::new_current_thread()
+                .enable_all()
+                .build()
+                .map_err(|_| Error::InvalidBackupRequest("failed to create WMI runtime"))?;
+            runtime.block_on(async move {
+                let reference_points = ReferencePointService::new().await?;
+                let reference_point = reference_points
+                    .create_reference_point(
+                        &reference_point_request.affected_system,
+                        &reference_point_request.reference_point_settings,
+                        reference_point_request.reference_point_type,
+                        &reference_point_request.resulting_reference_point,
+                    )
+                    .await?;
+                let backup_result = async {
+                    tokio::fs::create_dir_all(&request.destination).await?;
+                    Err(Error::BackupBackendUnavailable)
+                }
+                .await;
+                let cleanup_result = reference_points
+                    .cleanup_reference_point(
+                        &reference_point,
+                        reference_point_request.retain_for_incremental,
+                    )
+                    .await;
+                match (backup_result, cleanup_result) {
+                    (Err(error), _) => Err(error),
+                    (Ok(()), Err(error)) => Err(error),
+                    (Ok(()), Ok(())) => Ok(()),
+                }
+            })
+        })
+        .await
+        .map_err(|_| Error::InvalidBackupRequest("reference-point worker stopped"))?
     }
 
     async fn set_status(&self, id: BackupId, status: BackupStatus) {

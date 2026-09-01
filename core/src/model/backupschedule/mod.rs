@@ -19,7 +19,12 @@ pub struct BackupSchedule {
 }
 
 impl BackupSchedule {
-    pub fn new(virtual_machine_id: VmId, destination: PathBuf, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Self {
+    pub fn new(
+        virtual_machine_id: VmId,
+        destination: PathBuf,
+        first_run_at: DateTime<Utc>,
+        repeat_every: Option<Duration>,
+    ) -> Self {
         Self {
             id: ScheduleId::new_v4(),
             virtual_machine_id,

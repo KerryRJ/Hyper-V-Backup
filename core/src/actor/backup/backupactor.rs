@@ -5,10 +5,10 @@ use tokio_util::sync::CancellationToken;
 
 use crate::model::Error;
 use crate::service::backup::{
-    BackupFailure, BackupId, BackupRequest, BackupState, BackupStatus, ReferencePointRequest,
+    BackupFailure, BackupId, BackupRequest, BackupState, BackupStatus, ReferencePointBackupOptions,
     StatusStore,
 };
-use crate::service::referencepointservice::ReferencePointService;
+use crate::service::referencepointservice::{ReferencePointCreateRequest, ReferencePointService};
 
 use super::command::Command;
 
@@ -54,7 +54,8 @@ impl BackupActor {
     pub(crate) async fn start_with_reference_point(
         &self,
         request: BackupRequest,
-        reference_point: ReferencePointRequest,
+        reference_point: ReferencePointCreateRequest,
+        options: ReferencePointBackupOptions,
     ) -> Result<BackupId, Error> {
         let id = BackupId::new_v4();
         self.statuses.write().await.insert(
@@ -73,6 +74,7 @@ impl BackupActor {
                 id,
                 request,
                 reference_point,
+                options,
             })
             .await
             .map_err(|_| Error::InvalidBackupRequest("backup actor is stopped"))?;
@@ -105,7 +107,11 @@ impl BackupActor {
                     id,
                     request,
                     reference_point,
-                } => self.process_with_reference_point(id, request, reference_point).await,
+                    options,
+                } => {
+                    self.process_with_reference_point(id, request, reference_point, options)
+                        .await
+                }
             }
         }
         Ok(())
@@ -156,7 +162,8 @@ impl BackupActor {
         &self,
         id: BackupId,
         request: BackupRequest,
-        reference_point_request: ReferencePointRequest,
+        reference_point_request: ReferencePointCreateRequest,
+        options: ReferencePointBackupOptions,
     ) {
         self.set_status(
             id,
@@ -183,7 +190,7 @@ impl BackupActor {
             if cancellation.is_cancelled() {
                 return Err(Error::BackupCancelled);
             }
-            Self::run_reference_point_backup(request, reference_point_request).await
+            Self::run_reference_point_backup(request, reference_point_request, options).await
         }
         .await;
 
@@ -199,7 +206,8 @@ impl BackupActor {
 
     async fn run_reference_point_backup(
         request: BackupRequest,
-        reference_point_request: ReferencePointRequest,
+        reference_point_request: ReferencePointCreateRequest,
+        options: ReferencePointBackupOptions,
     ) -> Result<(), Error> {
         tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
@@ -209,12 +217,7 @@ impl BackupActor {
             runtime.block_on(async move {
                 let reference_points = ReferencePointService::new().await?;
                 let reference_point = reference_points
-                    .create_reference_point(
-                        &reference_point_request.affected_system,
-                        &reference_point_request.reference_point_settings,
-                        reference_point_request.reference_point_type,
-                        &reference_point_request.resulting_reference_point,
-                    )
+                    .create_reference_point(&reference_point_request)
                     .await?;
                 let backup_result = async {
                     tokio::fs::create_dir_all(&request.destination).await?;
@@ -222,10 +225,7 @@ impl BackupActor {
                 }
                 .await;
                 let cleanup_result = reference_points
-                    .cleanup_reference_point(
-                        &reference_point,
-                        reference_point_request.retain_for_incremental,
-                    )
+                    .cleanup_reference_point(&reference_point, options.retain_for_incremental)
                     .await;
                 match (backup_result, cleanup_result) {
                     (Err(error), _) => Err(error),

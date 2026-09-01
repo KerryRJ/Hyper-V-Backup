@@ -92,9 +92,7 @@ impl VirtualMachine {
     pub fn enabled_state(&self) -> Option<&enabledstate::EnabledState> {
         self.enabled_state.as_ref()
     }
-    pub fn enhanced_session_mode_state(
-        &self,
-    ) -> Option<&enhancedsessionmodestate::EnhancedSessionModeState> {
+    pub fn enhanced_session_mode_state(&self) -> Option<&enhancedsessionmodestate::EnhancedSessionModeState> {
         self.enhanced_session_mode_state.as_ref()
     }
     pub fn health_state(&self) -> Option<&healthstate::HealthState> {
@@ -139,9 +137,7 @@ impl VirtualMachine {
     pub fn other_identifying_info(&self) -> Option<&[String]> {
         self.other_identifying_info.as_deref()
     }
-    pub fn power_management_capabilities(
-        &self,
-    ) -> Option<&[powermanagementcapabilities::PowerManagementCapabilities]> {
+    pub fn power_management_capabilities(&self) -> Option<&[powermanagementcapabilities::PowerManagementCapabilities]> {
         self.power_management_capabilities.as_deref()
     }
     pub fn primary_owner_contact(&self) -> Option<&str> {

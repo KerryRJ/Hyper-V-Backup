@@ -47,12 +47,7 @@ impl BackupService {
         self.actor.status(id).await
     }
 
-    pub async fn start_with_reference_point(
-        &self,
-        request: BackupRequest,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<BackupId, Error> {
+    pub async fn start_with_reference_point(&self, request: BackupRequest, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<BackupId, Error> {
         if request.virtual_machine_id.is_nil() {
             return Err(Error::InvalidBackupRequest(
                 "virtual machine id cannot be nil",
@@ -73,33 +68,17 @@ impl BackupService {
         self.actor.cancel(id).await
     }
 
-    pub async fn schedule(
-        &self,
-        request: BackupRequest,
-        first_run_at: DateTime<Utc>,
-        repeat_every: Option<Duration>,
-    ) -> Result<ScheduleId, Error> {
+    pub async fn schedule(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Result<ScheduleId, Error> {
         self.scheduler
             .schedule(request, first_run_at, repeat_every)
             .await
     }
 
-    pub async fn schedule_now(
-        &self,
-        request: BackupRequest,
-        repeat_every: Option<Duration>,
-    ) -> Result<(ScheduleId, BackupId), Error> {
+    pub async fn schedule_now(&self, request: BackupRequest, repeat_every: Option<Duration>) -> Result<(ScheduleId, BackupId), Error> {
         self.scheduler.schedule_now(request, repeat_every).await
     }
 
-    pub async fn schedule_with_reference_point(
-        &self,
-        request: BackupRequest,
-        first_run_at: DateTime<Utc>,
-        repeat_every: Option<Duration>,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<ScheduleId, Error> {
+    pub async fn schedule_with_reference_point(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<ScheduleId, Error> {
         self.scheduler
             .schedule_with_reference_point(
                 request,
@@ -111,13 +90,7 @@ impl BackupService {
             .await
     }
 
-    pub async fn schedule_now_with_reference_point(
-        &self,
-        request: BackupRequest,
-        repeat_every: Option<Duration>,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<(ScheduleId, BackupId), Error> {
+    pub async fn schedule_now_with_reference_point(&self, request: BackupRequest, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<(ScheduleId, BackupId), Error> {
         self.scheduler
             .schedule_now_with_reference_point(request, repeat_every, reference_point, options)
             .await

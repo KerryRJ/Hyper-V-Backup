@@ -158,13 +158,7 @@ impl BackupActor {
         self.cancellations.write().await.remove(&id);
     }
 
-    async fn process_with_reference_point(
-        &self,
-        id: BackupId,
-        request: BackupRequest,
-        reference_point_request: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) {
+    async fn process_with_reference_point(&self, id: BackupId, request: BackupRequest, reference_point_request: ReferencePointCreateRequest, options: ReferencePointBackupOptions) {
         self.set_status(
             id,
             BackupStatus {
@@ -204,11 +198,7 @@ impl BackupActor {
         self.cancellations.write().await.remove(&id);
     }
 
-    async fn run_reference_point_backup(
-        request: BackupRequest,
-        reference_point_request: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<(), Error> {
+    async fn run_reference_point_backup(request: BackupRequest, reference_point_request: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<(), Error> {
         tokio::task::spawn_blocking(move || {
             let runtime = tokio::runtime::Builder::new_current_thread()
                 .enable_all()

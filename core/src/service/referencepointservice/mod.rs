@@ -17,10 +17,7 @@ impl ReferencePointService {
         })
     }
 
-    pub async fn create(
-        &self,
-        request: &ReferencePointCreateRequest,
-    ) -> Result<ReferencePoint, Error> {
+    pub async fn create(&self, request: &ReferencePointCreateRequest) -> Result<ReferencePoint, Error> {
         let result = self
             .wmi
             .create_reference_point(
@@ -33,31 +30,21 @@ impl ReferencePointService {
         Ok(WmiReferencePointService::reference_point(result)?)
     }
 
-    pub async fn destroy(
-        &self,
-        reference_point: &ReferencePoint,
-    ) -> Result<(), Error> {
+    pub async fn destroy(&self, reference_point: &ReferencePoint) -> Result<(), Error> {
         self.wmi
             .destroy_reference_point(&reference_point.id().to_string())
             .await?;
         Ok(())
     }
 
-    pub async fn remove_associated_data(
-        &self,
-        reference_point: &ReferencePoint,
-    ) -> Result<(), Error> {
+    pub async fn remove_associated_data(&self, reference_point: &ReferencePoint) -> Result<(), Error> {
         self.wmi
             .remove_associated_data(&reference_point.id().to_string())
             .await?;
         Ok(())
     }
 
-    pub async fn cleanup(
-        &self,
-        reference_point: &ReferencePoint,
-        retain_for_incremental: bool,
-    ) -> Result<(), Error> {
+    pub async fn cleanup(&self, reference_point: &ReferencePoint, retain_for_incremental: bool) -> Result<(), Error> {
         if retain_for_incremental {
             self.remove_associated_data(reference_point).await
         } else {

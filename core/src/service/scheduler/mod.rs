@@ -52,12 +52,7 @@ impl Scheduler {
         }
     }
 
-    pub async fn schedule(
-        &self,
-        request: BackupRequest,
-        first_run_at: DateTime<Utc>,
-        repeat_every: Option<Duration>,
-    ) -> Result<ScheduleId, Error> {
+    pub async fn schedule(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Result<ScheduleId, Error> {
         Self::validate_request(&request)?;
         if repeat_every.is_some_and(|interval| interval <= Duration::zero()) {
             return Err(Error::InvalidBackupSchedule(
@@ -75,24 +70,13 @@ impl Scheduler {
         Ok(id)
     }
 
-    pub async fn schedule_now(
-        &self,
-        request: BackupRequest,
-        repeat_every: Option<Duration>,
-    ) -> Result<(ScheduleId, BackupId), Error> {
+    pub async fn schedule_now(&self, request: BackupRequest, repeat_every: Option<Duration>) -> Result<(ScheduleId, BackupId), Error> {
         let schedule_id = self.schedule(request, Utc::now(), repeat_every).await?;
         let backup_id = self.trigger_schedule(schedule_id, Utc::now()).await?;
         Ok((schedule_id, backup_id))
     }
 
-    pub async fn schedule_with_reference_point(
-        &self,
-        request: BackupRequest,
-        first_run_at: DateTime<Utc>,
-        repeat_every: Option<Duration>,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<ScheduleId, Error> {
+    pub async fn schedule_with_reference_point(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<ScheduleId, Error> {
         let id = self.schedule(request, first_run_at, repeat_every).await?;
         self.reference_points
             .write()
@@ -101,13 +85,7 @@ impl Scheduler {
         Ok(id)
     }
 
-    pub async fn schedule_now_with_reference_point(
-        &self,
-        request: BackupRequest,
-        repeat_every: Option<Duration>,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<(ScheduleId, BackupId), Error> {
+    pub async fn schedule_now_with_reference_point(&self, request: BackupRequest, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<(ScheduleId, BackupId), Error> {
         let schedule_id = self
             .schedule_with_reference_point(
                 request,
@@ -164,11 +142,7 @@ impl Scheduler {
         Ok(backup_ids)
     }
 
-    async fn trigger_schedule(
-        &self,
-        id: ScheduleId,
-        now: DateTime<Utc>,
-    ) -> Result<BackupId, Error> {
+    async fn trigger_schedule(&self, id: ScheduleId, now: DateTime<Utc>) -> Result<BackupId, Error> {
         let (request, reference_point) = {
             let mut schedules = self.schedules.write().await;
             let schedule = schedules
@@ -195,16 +169,7 @@ impl Scheduler {
         }
     }
 
-    async fn collect_due(
-        schedules: &Arc<RwLock<HashMap<ScheduleId, BackupSchedule>>>,
-        reference_points: &Arc<
-            RwLock<HashMap<ScheduleId, (ReferencePointCreateRequest, ReferencePointBackupOptions)>>,
-        >,
-        now: DateTime<Utc>,
-    ) -> Vec<(
-        BackupRequest,
-        Option<(ReferencePointCreateRequest, ReferencePointBackupOptions)>,
-    )> {
+    async fn collect_due(schedules: &Arc<RwLock<HashMap<ScheduleId, BackupSchedule>>>, reference_points: &Arc<RwLock<HashMap<ScheduleId, (ReferencePointCreateRequest, ReferencePointBackupOptions)>>>, now: DateTime<Utc>) -> Vec<(BackupRequest, Option<(ReferencePointCreateRequest, ReferencePointBackupOptions)>)> {
         let mut due = Vec::new();
         let mut schedules = schedules.write().await;
         for schedule in schedules.values_mut() {

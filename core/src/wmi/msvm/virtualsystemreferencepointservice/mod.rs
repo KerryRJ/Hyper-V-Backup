@@ -53,13 +53,7 @@ impl VirtualSystemReferencePointService {
         })
     }
 
-    pub async fn create_reference_point(
-        &self,
-        affected_system: &str,
-        reference_point_settings: &str,
-        reference_point_type: u16,
-        resulting_reference_point: &str,
-    ) -> wmi::WMIResult<CreateReferencePointResult> {
+    pub async fn create_reference_point(&self, affected_system: &str, reference_point_settings: &str, reference_point_type: u16, resulting_reference_point: &str) -> wmi::WMIResult<CreateReferencePointResult> {
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>(
@@ -85,12 +79,7 @@ impl VirtualSystemReferencePointService {
         Ok(result)
     }
 
-    async fn wait_for_job(
-        job: &str,
-        job_events: &mut (
-                 impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin
-             ),
-    ) -> wmi::WMIResult<()> {
+    async fn wait_for_job(job: &str, job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin)) -> wmi::WMIResult<()> {
         while let Some(event) = job_events.next().await {
             let event = event?;
             if !event.TargetInstance.__PATH.eq_ignore_ascii_case(job) {
@@ -142,10 +131,7 @@ impl VirtualSystemReferencePointService {
             })
     }
 
-    pub async fn destroy_reference_point(
-        &self,
-        affected_reference_point: &str,
-    ) -> wmi::WMIResult<MethodResult> {
+    pub async fn destroy_reference_point(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
         self.connection
             .exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
                 &self.path,
@@ -156,12 +142,7 @@ impl VirtualSystemReferencePointService {
             )
     }
 
-    pub async fn export_reference_point(
-        &self,
-        reference_point: &str,
-        export_directory: &str,
-        export_setting_data: &str,
-    ) -> wmi::WMIResult<MethodResult> {
+    pub async fn export_reference_point(&self, reference_point: &str, export_directory: &str, export_setting_data: &str) -> wmi::WMIResult<MethodResult> {
         self.connection
             .exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
                 &self.path,
@@ -174,12 +155,7 @@ impl VirtualSystemReferencePointService {
             )
     }
 
-    pub async fn import_reference_point_metadata(
-        &self,
-        affected_system: &str,
-        config_file_path: &str,
-        runtime_state_file_path: &str,
-    ) -> wmi::WMIResult<MethodResult> {
+    pub async fn import_reference_point_metadata(&self, affected_system: &str, config_file_path: &str, runtime_state_file_path: &str) -> wmi::WMIResult<MethodResult> {
         self.connection
             .exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
                 &self.path,
@@ -192,10 +168,7 @@ impl VirtualSystemReferencePointService {
             )
     }
 
-    pub async fn remove_associated_data(
-        &self,
-        affected_reference_point: &str,
-    ) -> wmi::WMIResult<MethodResult> {
+    pub async fn remove_associated_data(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
         self.connection
             .exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
                 &self.path,

@@ -1,0 +1,1 @@
+For Rust functions, keep parameters on the same line as the function definition whenever the signature fits within rustfmt's configured maximum width. Allow rustfmt to use multiple lines when the signature is too long.

@@ -1,5 +1,5 @@
 use crate::model::Error;
-use crate::model::{VmId, VirtualMachine};
+use crate::model::{VirtualMachine, VmId};
 use crate::wmi::{HYPER_V_NAMESPACE, msvm::computersystem::ComputerSystem};
 
 pub struct Host;
@@ -43,9 +43,7 @@ mod tests {
     #[tokio::test]
     async fn returns_not_found_for_unknown_vm() {
         let missing_id = VmId::nil();
-        let result = Host::new()
-            .get_virtual_machine(missing_id)
-            .await;
+        let result = Host::new().get_virtual_machine(missing_id).await;
         assert!(matches!(
             result,
             Err(Error::VirtualMachineNotFound(id)) if id == missing_id
@@ -55,8 +53,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires a running Hyper-V VM"]
     async fn returns_virtual_machine_by_id() {
-        let vm_id = VmId::parse_str("B12E125D-5EDF-40DA-94A0-89BA9836221D")
-            .unwrap();
+        let vm_id = VmId::parse_str("B12E125D-5EDF-40DA-94A0-89BA9836221D").unwrap();
         let vm = Host::new()
             .get_virtual_machine(vm_id)
             .await

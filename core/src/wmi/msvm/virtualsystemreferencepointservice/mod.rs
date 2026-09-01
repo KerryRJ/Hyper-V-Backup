@@ -17,6 +17,7 @@ use self::methodresult::MethodResult;
 use self::referencepointinput::ReferencePointInput;
 use self::virtualsystemreferencepointserviceclass::VirtualSystemReferencePointServiceClass;
 use self::virtualsystemreferencepointserviceinstance::VirtualSystemReferencePointServiceInstance;
+use crate::model::ReferencePoint;
 use crate::wmi::HYPER_V_NAMESPACE;
 
 pub struct VirtualSystemReferencePointService {
@@ -62,6 +63,26 @@ impl VirtualSystemReferencePointService {
                     ResultingReferencePoint: resulting_reference_point,
                 },
             )
+    }
+
+    pub fn reference_point(result: CreateReferencePointResult) -> wmi::WMIResult<ReferencePoint> {
+        result
+            .ResultingReferencePoint
+            .map(|id| {
+                uuid::Uuid::parse_str(&id)
+                    .map(ReferencePoint::new)
+                    .map_err(|error| {
+                        wmi::WMIError::ConvertVariantError(
+                            format!("Invalid reference point identifier: {error}").into(),
+                        )
+                    })
+            })
+            .transpose()?
+            .ok_or_else(|| {
+                wmi::WMIError::ConvertVariantError(
+                    "CreateReferencePoint returned no reference point".into(),
+                )
+            })
     }
 
     pub async fn destroy_reference_point(
@@ -126,5 +147,35 @@ impl VirtualSystemReferencePointService {
                     AffectedReferencePoint: affected_reference_point,
                 },
             )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn converts_created_reference_point() {
+        let reference_point =
+            VirtualSystemReferencePointService::reference_point(CreateReferencePointResult {
+                ReturnValue: 0,
+                ResultingReferencePoint: Some("00000000-0000-0000-0000-000000000000".into()),
+                Job: None,
+            })
+            .unwrap();
+
+        assert_eq!(reference_point.id(), uuid::Uuid::nil());
+    }
+
+    #[test]
+    fn rejects_missing_created_reference_point() {
+        let result =
+            VirtualSystemReferencePointService::reference_point(CreateReferencePointResult {
+                ReturnValue: 0,
+                ResultingReferencePoint: None,
+                Job: None,
+            });
+
+        assert!(result.is_err());
     }
 }

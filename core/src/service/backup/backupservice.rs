@@ -175,6 +175,132 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn stores_schedule_configuration() {
+        let service = service();
+        let virtual_machine_id = BackupId::new_v4();
+        let destination = PathBuf::from("backup");
+        let first_run_at = Utc::now() + Duration::minutes(5);
+        let repeat_every = Some(Duration::hours(1));
+
+        let id = service
+            .schedule(
+                BackupRequest {
+                    virtual_machine_id,
+                    destination: destination.clone(),
+                },
+                first_run_at,
+                repeat_every,
+            )
+            .await
+            .unwrap();
+
+        let schedule = service
+            .schedules()
+            .await
+            .into_iter()
+            .find(|schedule| schedule.id == id)
+            .unwrap();
+
+        assert_eq!(schedule.virtual_machine_id, virtual_machine_id);
+        assert_eq!(schedule.destination, destination);
+        assert_eq!(schedule.next_run_at, first_run_at);
+        assert_eq!(schedule.repeat_every, repeat_every);
+        assert!(schedule.enabled);
+    }
+
+    #[tokio::test]
+    async fn rejects_non_positive_repeat_interval() {
+        let service = service();
+        let request = BackupRequest {
+            virtual_machine_id: BackupId::new_v4(),
+            destination: PathBuf::from("backup"),
+        };
+
+        for repeat_every in [Duration::zero(), -Duration::minutes(1)] {
+            assert!(matches!(
+                service.schedule(request.clone(), Utc::now(), Some(repeat_every)).await,
+                Err(Error::InvalidBackupSchedule(
+                    "repeat interval must be positive"
+                ))
+            ));
+        }
+    }
+
+    #[tokio::test]
+    async fn one_shot_schedule_is_disabled_after_triggering() {
+        let service = service();
+        let now = Utc::now();
+        let id = service
+            .schedule(
+                BackupRequest {
+                    virtual_machine_id: BackupId::new_v4(),
+                    destination: PathBuf::from("backup"),
+                },
+                now,
+                None,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(service.trigger_due(now).await.unwrap().len(), 1);
+        assert!(!service
+            .schedules()
+            .await
+            .into_iter()
+            .find(|schedule| schedule.id == id)
+            .unwrap()
+            .enabled);
+        assert!(service.trigger_due(now).await.unwrap().is_empty());
+    }
+
+    #[tokio::test]
+    async fn disabled_schedule_does_not_trigger_until_reenabled() {
+        let service = service();
+        let now = Utc::now();
+        let id = service
+            .schedule(
+                BackupRequest {
+                    virtual_machine_id: BackupId::new_v4(),
+                    destination: PathBuf::from("backup"),
+                },
+                now,
+                Some(Duration::minutes(1)),
+            )
+            .await
+            .unwrap();
+
+        service.set_schedule_enabled(id, false).await.unwrap();
+        assert!(service.trigger_due(now).await.unwrap().is_empty());
+
+        service.set_schedule_enabled(id, true).await.unwrap();
+        assert_eq!(service.trigger_due(now).await.unwrap().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn cancel_schedule_removes_schedule() {
+        let service = service();
+        let id = service
+            .schedule(
+                BackupRequest {
+                    virtual_machine_id: BackupId::new_v4(),
+                    destination: PathBuf::from("backup"),
+                },
+                Utc::now(),
+                None,
+            )
+            .await
+            .unwrap();
+
+        service.cancel_schedule(id).await.unwrap();
+
+        assert!(service.schedules().await.into_iter().all(|schedule| schedule.id != id));
+        assert!(matches!(
+            service.cancel_schedule(id).await,
+            Err(Error::InvalidBackupSchedule("schedule not found"))
+        ));
+    }
+
+    #[tokio::test]
     async fn triggers_multiple_due_schedules() {
         let service = service();
         let now = Utc::now();

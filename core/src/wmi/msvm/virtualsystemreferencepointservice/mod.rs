@@ -19,12 +19,10 @@ use self::methodresult::MethodResult;
 use self::referencepointinput::ReferencePointInput;
 use self::virtualsystemreferencepointserviceclass::VirtualSystemReferencePointServiceClass;
 use self::virtualsystemreferencepointserviceinstance::VirtualSystemReferencePointServiceInstance;
-use crate::model::ReferencePointId;
-use crate::model::VmId;
+use crate::model::{ReferencePointId, VirtualMachine};
 use crate::service::referencepointservice::ReferencePointSettingsData;
 use crate::wmi::HYPER_V_NAMESPACE;
 use futures::StreamExt;
-use serde::Deserialize;
 
 pub struct VirtualSystemReferencePointService {
     connection: wmi::WMIConnection,
@@ -35,12 +33,6 @@ const JOB_STATE_COMPLETED: u16 = 7;
 const JOB_STATE_TERMINATED: u16 = 8;
 const JOB_STATE_KILLED: u16 = 9;
 const JOB_STATE_EXCEPTION: u16 = 10;
-
-#[derive(Deserialize)]
-#[serde(rename = "Msvm_ComputerSystem")]
-struct ComputerSystemPath {
-    __Path: Option<Option<String>>,
-}
 
 impl VirtualSystemReferencePointService {
     pub async fn new() -> wmi::WMIResult<Self> {
@@ -56,31 +48,20 @@ impl VirtualSystemReferencePointService {
     }
 
     pub async fn create_reference_point(
-        &self, affected_system: &VmId, reference_point_settings: Option<&ReferencePointSettingsData>, reference_point_type: u16, resulting_reference_point: Option<ReferencePointId>,
+        &self, affected_system: &VirtualMachine, reference_point_settings: Option<&ReferencePointSettingsData>, reference_point_type: u16, resulting_reference_point: Option<ReferencePointId>,
     ) -> wmi::WMIResult<CreateReferencePointResult> {
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
 
         let resulting_reference_point = resulting_reference_point.map(|id| id.to_string());
-        let affected_system_path = self
-            .connection
-            .async_raw_query::<ComputerSystemPath>(&format!("SELECT * FROM Msvm_ComputerSystem WHERE Name = '{}'", affected_system))
-            .await?
-            .into_iter()
-            .next()
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Virtual machine not found: {affected_system}").into()))?
-            .__Path;
-        let affected_system_path = affected_system_path
-            .and_then(|path| path)
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Virtual machine path not available: {affected_system}").into()))?;
         let reference_point_settings_xml = reference_point_settings.map(Self::reference_point_settings_to_xml);
 
         let result: CreateReferencePointResult = self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
             &self.path,
             "CreateReferencePoint",
             CreateReferencePointParams {
-                AffectedSystem: wmi::Variant::String(affected_system_path),
+                AffectedSystem: wmi::Variant::String(affected_system.path().to_owned()),
                 ReferencePointSettings: reference_point_settings_xml.as_deref().unwrap_or_default(),
                 ReferencePointType: reference_point_type,
                 ResultingReferencePoint: resulting_reference_point.as_deref(),

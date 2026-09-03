@@ -140,13 +140,13 @@ impl BackupActor {
             let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| Error::InvalidBackupRequest("failed to create WMI runtime"))?;
             runtime.block_on(async move {
                 let reference_points = ReferencePointService::new().await?;
-                let reference_point_id = reference_points.create(&reference_point_request).await?;
+                let reference_point = reference_points.create(&reference_point_request).await?;
                 let backup_result = async {
                     tokio::fs::create_dir_all(&request.destination).await?;
                     Err(Error::BackupBackendUnavailable)
                 }
                 .await;
-                let cleanup_result = reference_points.cleanup(reference_point_id, options.retain_for_incremental).await;
+                let cleanup_result = reference_points.cleanup(&reference_point, options.retain_for_incremental).await;
                 match (backup_result, cleanup_result) {
                     (Err(error), _) => Err(error),
                     (Ok(()), Err(error)) => Err(error),

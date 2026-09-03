@@ -19,7 +19,7 @@ use self::methodresult::MethodResult;
 use self::referencepointinput::ReferencePointInput;
 use self::virtualsystemreferencepointserviceclass::VirtualSystemReferencePointServiceClass;
 use self::virtualsystemreferencepointserviceinstance::VirtualSystemReferencePointServiceInstance;
-use crate::model::{ReferencePointId, VirtualMachine};
+use crate::model::{ReferencePoint, ReferencePointId, VirtualMachine};
 use crate::service::referencepointservice::ReferencePointSettingData;
 use crate::wmi::HYPER_V_NAMESPACE;
 use futures::StreamExt;
@@ -99,14 +99,25 @@ impl VirtualSystemReferencePointService {
         Err(wmi::WMIError::ConvertVariantError(format!("Concrete job event stream ended before completion: {job}").into()))
     }
 
-    pub fn reference_point(result: CreateReferencePointResult) -> wmi::WMIResult<ReferencePointId> {
+    pub async fn reference_point(&self, result: CreateReferencePointResult) -> wmi::WMIResult<ReferencePoint> {
+        let id = Self::reference_point_id(result)?;
+        let mut reference_points = self
+            .connection
+            .async_raw_query::<crate::wmi::msvm::referencepoint::ReferencePoint>(&format!("SELECT * FROM Msvm_VirtualSystemReferencePoint WHERE InstanceID = '{}'", id))
+            .await?;
+        let reference_point = reference_points.pop().ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Reference point not found: {id}").into()))?;
+        ReferencePoint::try_from(reference_point).map_err(|error| wmi::WMIError::ConvertVariantError(error.to_string().into()))
+    }
+
+    fn reference_point_id(result: CreateReferencePointResult) -> wmi::WMIResult<ReferencePointId> {
         let id = result
             .ResultingReferencePoint
             .as_ref()
             .and_then(|id| id.as_deref())
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no reference point".into()))?;
         let id = uuid::Uuid::parse_str(id).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid reference point identifier: {error}").into()))?;
-        ReferencePointId::try_from(id).map_err(|error| wmi::WMIError::ConvertVariantError(error.into()))
+        let id = ReferencePointId::try_from(id).map_err(|error| wmi::WMIError::ConvertVariantError(error.into()))?;
+        Ok(id)
     }
 
     pub async fn destroy_reference_point(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
@@ -161,7 +172,7 @@ mod tests {
 
     #[test]
     fn rejects_nil_created_reference_point() {
-        let result = VirtualSystemReferencePointService::reference_point(CreateReferencePointResult {
+        let result = VirtualSystemReferencePointService::reference_point_id(CreateReferencePointResult {
             ReturnValue: 0,
             ResultingReferencePoint: Some(Some("00000000-0000-0000-0000-000000000000".into())),
             Job: None,
@@ -172,7 +183,7 @@ mod tests {
 
     #[test]
     fn rejects_missing_created_reference_point() {
-        let result = VirtualSystemReferencePointService::reference_point(CreateReferencePointResult {
+        let result = VirtualSystemReferencePointService::reference_point_id(CreateReferencePointResult {
             ReturnValue: 0,
             ResultingReferencePoint: None,
             Job: None,

@@ -55,7 +55,7 @@ impl VirtualSystemReferencePointService {
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
 
         let resulting_reference_point = resulting_reference_point.map(|id| id.to_string());
-        let reference_point_settings_xml = reference_point_settings.map(Self::reference_point_settings_to_xml);
+        let reference_point_settings_xml = reference_point_settings.map(ReferencePointSettingsData::to_xml);
 
         let result: CreateReferencePointResult = self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
             &self.path,
@@ -73,30 +73,6 @@ impl VirtualSystemReferencePointService {
         }
 
         Ok(result)
-    }
-
-    fn reference_point_settings_to_xml(settings: &ReferencePointSettingsData) -> String {
-        let consistency_level = settings
-            .consistency_level
-            .map(|value| format!("<PROPERTY NAME=\"ConsistencyLevel\" TYPE=\"uint8\"><VALUE>{}</VALUE></PROPERTY>", value as u8))
-            .unwrap_or_default();
-        let caption = settings
-            .caption
-            .as_deref()
-            .map(|value| format!("<PROPERTY NAME=\"Caption\" TYPE=\"string\"><VALUE>{value}</VALUE></PROPERTY>"))
-            .unwrap_or_default();
-        let description = settings
-            .description
-            .as_deref()
-            .map(|value| format!("<PROPERTY NAME=\"Description\" TYPE=\"string\"><VALUE>{value}</VALUE></PROPERTY>"))
-            .unwrap_or_default();
-        let element_name = settings
-            .element_name
-            .as_deref()
-            .map(|value| format!("<PROPERTY NAME=\"ElementName\" TYPE=\"string\"><VALUE>{value}</VALUE></PROPERTY>"))
-            .unwrap_or_default();
-
-        format!("<INSTANCE CLASSNAME=\"Msvm_VirtualSystemReferencePointSettingData\">{consistency_level}{caption}{description}{element_name}</INSTANCE>")
     }
 
     async fn wait_for_job(job: &str, job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin)) -> wmi::WMIResult<()> {
@@ -211,13 +187,13 @@ mod tests {
         assert!(
             None::<&ReferencePointSettingsData>
                 .filter(|settings| settings.element_name.is_some() || settings.caption.is_some() || settings.description.is_some() || settings.consistency_level.is_some())
-                .map(VirtualSystemReferencePointService::reference_point_settings_to_xml)
+                .map(ReferencePointSettingsData::to_xml)
                 .is_none()
         );
         assert!(
             Some(&settings)
                 .filter(|settings| settings.element_name.is_some() || settings.caption.is_some() || settings.description.is_some() || settings.consistency_level.is_some())
-                .map(VirtualSystemReferencePointService::reference_point_settings_to_xml)
+                .map(ReferencePointSettingsData::to_xml)
                 .is_none()
         );
     }
@@ -232,7 +208,7 @@ mod tests {
         };
 
         assert_eq!(
-            VirtualSystemReferencePointService::reference_point_settings_to_xml(&settings),
+            settings.to_xml(),
             "<INSTANCE CLASSNAME=\"Msvm_VirtualSystemReferencePointSettingData\"><PROPERTY NAME=\"ElementName\" TYPE=\"string\"><VALUE>reference point</VALUE></PROPERTY></INSTANCE>"
         );
     }

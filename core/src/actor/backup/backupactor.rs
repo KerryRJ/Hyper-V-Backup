@@ -4,10 +4,7 @@ use tokio::sync::{Mutex, RwLock, mpsc};
 use tokio_util::sync::CancellationToken;
 
 use crate::model::Error;
-use crate::service::backup::{
-    BackupFailure, BackupId, BackupRequest, BackupState, BackupStatus, ReferencePointBackupOptions,
-    StatusStore,
-};
+use crate::service::backup::{BackupFailure, BackupId, BackupRequest, BackupState, BackupStatus, ReferencePointBackupOptions, StatusStore};
 use crate::service::referencepointservice::{ReferencePointCreateRequest, ReferencePointService};
 
 use super::command::Command;
@@ -33,49 +30,18 @@ impl BackupActor {
 
     pub(crate) async fn start(&self, request: BackupRequest) -> Result<BackupId, Error> {
         let id = BackupId::new_v4();
-        self.statuses.write().await.insert(
-            id,
-            BackupStatus {
-                state: BackupState::Queued,
-                progress: 0,
-            },
-        );
-        self.cancellations
-            .write()
-            .await
-            .insert(id, CancellationToken::new());
-        self.sender
-            .send(Command::Start { id, request })
-            .await
-            .map_err(|_| Error::InvalidBackupRequest("backup actor is stopped"))?;
+        self.statuses.write().await.insert(id, BackupStatus { state: BackupState::Queued, progress: 0 });
+        self.cancellations.write().await.insert(id, CancellationToken::new());
+        self.sender.send(Command::Start { id, request }).await.map_err(|_| Error::InvalidBackupRequest("backup actor is stopped"))?;
         Ok(id)
     }
 
-    pub(crate) async fn start_with_reference_point(
-        &self,
-        request: BackupRequest,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
-    ) -> Result<BackupId, Error> {
+    pub(crate) async fn start_with_reference_point(&self, request: BackupRequest, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<BackupId, Error> {
         let id = BackupId::new_v4();
-        self.statuses.write().await.insert(
-            id,
-            BackupStatus {
-                state: BackupState::Queued,
-                progress: 0,
-            },
-        );
-        self.cancellations
-            .write()
-            .await
-            .insert(id, CancellationToken::new());
+        self.statuses.write().await.insert(id, BackupStatus { state: BackupState::Queued, progress: 0 });
+        self.cancellations.write().await.insert(id, CancellationToken::new());
         self.sender
-            .send(Command::StartWithReferencePoint {
-                id,
-                request,
-                reference_point,
-                options,
-            })
+            .send(Command::StartWithReferencePoint { id, request, reference_point, options })
             .await
             .map_err(|_| Error::InvalidBackupRequest("backup actor is stopped"))?;
         Ok(id)
@@ -87,45 +53,25 @@ impl BackupActor {
 
     pub(crate) async fn cancel(&self, id: BackupId) -> Result<(), Error> {
         let cancellations = self.cancellations.read().await;
-        cancellations
-            .get(&id)
-            .ok_or(Error::BackupNotFound(id))?
-            .cancel();
+        cancellations.get(&id).ok_or(Error::BackupNotFound(id))?.cancel();
         Ok(())
     }
 
     pub async fn run(self) -> Result<(), Error> {
         let Some(mut receiver) = self.receiver.lock().await.take() else {
-            return Err(Error::InvalidBackupRequest(
-                "backup actor is already running",
-            ));
+            return Err(Error::InvalidBackupRequest("backup actor is already running"));
         };
         while let Some(command) = receiver.recv().await {
             match command {
                 Command::Start { id, request } => self.process(id, request).await,
-                Command::StartWithReferencePoint {
-                    id,
-                    request,
-                    reference_point,
-                    options,
-                } => {
-                    self.process_with_reference_point(id, request, reference_point, options)
-                        .await
-                }
+                Command::StartWithReferencePoint { id, request, reference_point, options } => self.process_with_reference_point(id, request, reference_point, options).await,
             }
         }
         Ok(())
     }
 
     async fn process(&self, id: BackupId, request: BackupRequest) {
-        self.set_status(
-            id,
-            BackupStatus {
-                state: BackupState::Running,
-                progress: 0,
-            },
-        )
-        .await;
+        self.set_status(id, BackupStatus { state: BackupState::Running, progress: 0 }).await;
         let cancellation = self.cancellations.read().await.get(&id).cloned();
         let Some(cancellation) = cancellation else {
             self.set_status(
@@ -153,20 +99,12 @@ impl BackupActor {
             Err(Error::BackupCancelled) => BackupState::Cancelled,
             Err(error) => BackupState::Failed(Self::failure_for(error)),
         };
-        self.set_status(id, BackupStatus { state, progress: 0 })
-            .await;
+        self.set_status(id, BackupStatus { state, progress: 0 }).await;
         self.cancellations.write().await.remove(&id);
     }
 
     async fn process_with_reference_point(&self, id: BackupId, request: BackupRequest, reference_point_request: ReferencePointCreateRequest, options: ReferencePointBackupOptions) {
-        self.set_status(
-            id,
-            BackupStatus {
-                state: BackupState::Running,
-                progress: 0,
-            },
-        )
-        .await;
+        self.set_status(id, BackupStatus { state: BackupState::Running, progress: 0 }).await;
         let cancellation = self.cancellations.read().await.get(&id).cloned();
         let Some(cancellation) = cancellation else {
             self.set_status(
@@ -193,30 +131,22 @@ impl BackupActor {
             Err(Error::BackupCancelled) => BackupState::Cancelled,
             Err(error) => BackupState::Failed(Self::failure_for(error)),
         };
-        self.set_status(id, BackupStatus { state, progress: 0 })
-            .await;
+        self.set_status(id, BackupStatus { state, progress: 0 }).await;
         self.cancellations.write().await.remove(&id);
     }
 
     async fn run_reference_point_backup(request: BackupRequest, reference_point_request: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<(), Error> {
         tokio::task::spawn_blocking(move || {
-            let runtime = tokio::runtime::Builder::new_current_thread()
-                .enable_all()
-                .build()
-                .map_err(|_| Error::InvalidBackupRequest("failed to create WMI runtime"))?;
+            let runtime = tokio::runtime::Builder::new_current_thread().enable_all().build().map_err(|_| Error::InvalidBackupRequest("failed to create WMI runtime"))?;
             runtime.block_on(async move {
                 let reference_points = ReferencePointService::new().await?;
-                let reference_point = reference_points
-                    .create(&reference_point_request)
-                    .await?;
+                let reference_point_id = reference_points.create(&reference_point_request).await?;
                 let backup_result = async {
                     tokio::fs::create_dir_all(&request.destination).await?;
                     Err(Error::BackupBackendUnavailable)
                 }
                 .await;
-                let cleanup_result = reference_points
-                    .cleanup(&reference_point, options.retain_for_incremental)
-                    .await;
+                let cleanup_result = reference_points.cleanup(reference_point_id, options.retain_for_incremental).await;
                 match (backup_result, cleanup_result) {
                     (Err(error), _) => Err(error),
                     (Ok(()), Err(error)) => Err(error),
@@ -261,10 +191,7 @@ mod tests {
     async fn rejects_cancellation_for_unknown_backup() {
         let actor = BackupActor::new();
 
-        assert!(matches!(
-            actor.cancel(BackupId::new_v4()).await,
-            Err(Error::BackupNotFound(_))
-        ));
+        assert!(matches!(actor.cancel(BackupId::new_v4()).await, Err(Error::BackupNotFound(_))));
     }
 
     #[tokio::test]
@@ -279,21 +206,12 @@ mod tests {
         actor.cancel(id).await.unwrap();
         actor.process(id, request).await;
 
-        assert_eq!(
-            actor.status(id).await,
-            Some(BackupStatus {
-                state: BackupState::Cancelled,
-                progress: 0,
-            })
-        );
+        assert_eq!(actor.status(id).await, Some(BackupStatus { state: BackupState::Cancelled, progress: 0 }));
     }
 
     #[test]
     fn maps_backend_error_to_typed_failure() {
-        assert_eq!(
-            BackupActor::failure_for(Error::BackupBackendUnavailable),
-            BackupFailure::BackendUnavailable
-        );
+        assert_eq!(BackupActor::failure_for(Error::BackupBackendUnavailable), BackupFailure::BackendUnavailable);
     }
 
     #[tokio::test]
@@ -305,12 +223,7 @@ mod tests {
 
         let result = actor.run().await;
 
-        assert!(matches!(
-            result,
-            Err(Error::InvalidBackupRequest(
-                "backup actor is already running"
-            ))
-        ));
+        assert!(matches!(result, Err(Error::InvalidBackupRequest("backup actor is already running"))));
         worker_handle.abort();
     }
 }

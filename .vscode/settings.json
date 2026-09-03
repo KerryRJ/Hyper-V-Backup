@@ -1,0 +1,5 @@
+{
+  "rust-analyzer.runnables.extraEnv": {
+    "HYPER_V_VM_NAME": "vrt001"
+  }
+}

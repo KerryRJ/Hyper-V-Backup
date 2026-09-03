@@ -4,7 +4,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub(super) struct ConcreteJob {
-    pub(super) __PATH: String,
+    pub(super) __PATH: Option<Option<String>>,
     pub(super) JobState: u16,
     pub(super) ErrorCode: Option<u32>,
     pub(super) ErrorDescription: Option<String>,

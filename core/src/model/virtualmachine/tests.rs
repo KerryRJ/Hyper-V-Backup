@@ -58,10 +58,7 @@ fn rejects_invalid_virtual_machine_id() {
     let mut computer_system = ComputerSystem::default();
     computer_system.Name = "not-a-uuid".into();
 
-    assert!(matches!(
-        VirtualMachine::try_from(computer_system),
-        Err(Error::Uuid(_))
-    ));
+    assert!(matches!(VirtualMachine::try_from(computer_system), Err(Error::Uuid(_))));
 }
 
 #[test]
@@ -70,32 +67,17 @@ fn rejects_invalid_optional_field() {
     computer_system.Name = uuid::Uuid::nil().to_string();
     computer_system.CommunicationStatus = Some(99);
 
-    assert!(matches!(
-        VirtualMachine::try_from(computer_system),
-        Err(Error::InvalidField("CommunicationStatus"))
-    ));
+    assert!(matches!(VirtualMachine::try_from(computer_system), Err(Error::InvalidField("CommunicationStatus"))));
 }
 
 #[test]
 fn decodes_non_sequential_status_values() {
-    assert_eq!(
-        CommunicationStatus::try_from(2),
-        Ok(CommunicationStatus::Ok)
-    );
+    assert_eq!(CommunicationStatus::try_from(2), Ok(CommunicationStatus::Ok));
     assert_eq!(EnabledState::try_from(32768), Ok(EnabledState::Paused));
     assert_eq!(HealthState::try_from(25), Ok(HealthState::CriticalFailure));
-    assert_eq!(
-        OperatingStatus::try_from(11),
-        Ok(OperatingStatus::Snapshotting)
-    );
-    assert_eq!(
-        RequestedState::try_from(32780),
-        Ok(RequestedState::FastSaving)
-    );
-    assert_eq!(
-        TransitioningToState::try_from(32777),
-        Ok(TransitioningToState::Resuming)
-    );
+    assert_eq!(OperatingStatus::try_from(11), Ok(OperatingStatus::Snapshotting));
+    assert_eq!(RequestedState::try_from(32780), Ok(RequestedState::FastSaving));
+    assert_eq!(TransitioningToState::try_from(32777), Ok(TransitioningToState::Resuming));
 }
 
 #[test]
@@ -113,10 +95,7 @@ fn decodes_operational_status_primary_and_secondary_values() {
     let status = OperationalStatus::from_values(vec![2, 32773]).unwrap();
 
     assert_eq!(status.primary, PrimaryOperationalStatus::Ok);
-    assert_eq!(
-        status.secondary,
-        Some(SecondaryOperationalStatus::ExportingVirtualMachine)
-    );
+    assert_eq!(status.secondary, Some(SecondaryOperationalStatus::ExportingVirtualMachine));
 }
 
 #[test]
@@ -128,32 +107,14 @@ fn rejects_empty_or_invalid_operational_status() {
 #[test]
 fn decodes_remaining_status_values() {
     assert_eq!(Dedicated::try_from(2), Ok(Dedicated::Other));
-    assert_eq!(
-        DetailedStatus::try_from(4),
-        Ok(DetailedStatus::NonRecoverableError)
-    );
+    assert_eq!(DetailedStatus::try_from(4), Ok(DetailedStatus::NonRecoverableError));
     assert_eq!(EnabledDefault::default(), EnabledDefault::Enabled);
-    assert_eq!(
-        EnabledDefault::try_from(6),
-        Ok(EnabledDefault::EnabledButOffline)
-    );
-    assert_eq!(
-        EnhancedSessionModeState::try_from(6),
-        Ok(EnhancedSessionModeState::AllowedButNotAvailable)
-    );
-    assert_eq!(
-        PowerManagementCapabilities::try_from(7),
-        Ok(PowerManagementCapabilities::TimedPowerOnSupported)
-    );
+    assert_eq!(EnabledDefault::try_from(6), Ok(EnabledDefault::EnabledButOffline));
+    assert_eq!(EnhancedSessionModeState::try_from(6), Ok(EnhancedSessionModeState::AllowedButNotAvailable));
+    assert_eq!(PowerManagementCapabilities::try_from(7), Ok(PowerManagementCapabilities::TimedPowerOnSupported));
     assert_eq!(PrimaryStatus::try_from(3), Ok(PrimaryStatus::InError));
-    assert_eq!(
-        ReplicationMode::try_from(4),
-        Ok(ReplicationMode::ExtendedReplica)
-    );
-    assert_eq!(
-        ResetCapability::try_from(5),
-        Ok(ResetCapability::NotImplemented)
-    );
+    assert_eq!(ReplicationMode::try_from(4), Ok(ReplicationMode::ExtendedReplica));
+    assert_eq!(ResetCapability::try_from(5), Ok(ResetCapability::NotImplemented));
 }
 
 #[test]

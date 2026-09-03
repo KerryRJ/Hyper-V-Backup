@@ -21,25 +21,17 @@ impl BackupService {
         let actor = BackupActor::new();
         tokio::spawn(actor.clone().run());
         let scheduler = Scheduler::new(actor.clone());
-        Self {
-            host,
-            actor,
-            scheduler,
-        }
+        Self { host, actor, scheduler }
     }
 
     pub async fn start(&self, request: BackupRequest) -> Result<BackupId, Error> {
         if request.virtual_machine_id.is_nil() {
-            return Err(Error::InvalidBackupRequest(
-                "virtual machine id cannot be nil",
-            ));
+            return Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"));
         }
         if request.destination.as_os_str().is_empty() {
             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
         }
-        self.host
-            .get_virtual_machine(request.virtual_machine_id)
-            .await?;
+        self.host.get_virtual_machine(request.virtual_machine_id).await?;
         self.actor.start(request).await
     }
 
@@ -49,19 +41,13 @@ impl BackupService {
 
     pub async fn start_with_reference_point(&self, request: BackupRequest, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<BackupId, Error> {
         if request.virtual_machine_id.is_nil() {
-            return Err(Error::InvalidBackupRequest(
-                "virtual machine id cannot be nil",
-            ));
+            return Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"));
         }
         if request.destination.as_os_str().is_empty() {
             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
         }
-        self.host
-            .get_virtual_machine(request.virtual_machine_id)
-            .await?;
-        self.actor
-            .start_with_reference_point(request, reference_point, options)
-            .await
+        self.host.get_virtual_machine(request.virtual_machine_id).await?;
+        self.actor.start_with_reference_point(request, reference_point, options).await
     }
 
     pub async fn cancel(&self, id: BackupId) -> Result<(), Error> {
@@ -69,31 +55,21 @@ impl BackupService {
     }
 
     pub async fn schedule(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Result<ScheduleId, Error> {
-        self.scheduler
-            .schedule(request, first_run_at, repeat_every)
-            .await
+        self.scheduler.schedule(request, first_run_at, repeat_every).await
     }
 
     pub async fn schedule_now(&self, request: BackupRequest, repeat_every: Option<Duration>) -> Result<(ScheduleId, BackupId), Error> {
         self.scheduler.schedule_now(request, repeat_every).await
     }
 
-    pub async fn schedule_with_reference_point(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<ScheduleId, Error> {
-        self.scheduler
-            .schedule_with_reference_point(
-                request,
-                first_run_at,
-                repeat_every,
-                reference_point,
-                options,
-            )
-            .await
+    pub async fn schedule_with_reference_point(
+        &self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions,
+    ) -> Result<ScheduleId, Error> {
+        self.scheduler.schedule_with_reference_point(request, first_run_at, repeat_every, reference_point, options).await
     }
 
     pub async fn schedule_now_with_reference_point(&self, request: BackupRequest, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<(ScheduleId, BackupId), Error> {
-        self.scheduler
-            .schedule_now_with_reference_point(request, repeat_every, reference_point, options)
-            .await
+        self.scheduler.schedule_now_with_reference_point(request, repeat_every, reference_point, options).await
     }
 
     pub async fn cancel_schedule(&self, id: ScheduleId) -> Result<(), Error> {
@@ -134,12 +110,7 @@ mod tests {
             })
             .await;
 
-        assert!(matches!(
-            result,
-            Err(Error::InvalidBackupRequest(
-                "virtual machine id cannot be nil"
-            ))
-        ));
+        assert!(matches!(result, Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"))));
     }
 
     #[tokio::test]
@@ -151,10 +122,7 @@ mod tests {
             })
             .await;
 
-        assert!(matches!(
-            result,
-            Err(Error::InvalidBackupRequest("destination cannot be empty"))
-        ));
+        assert!(matches!(result, Err(Error::InvalidBackupRequest("destination cannot be empty"))));
     }
 
     #[tokio::test]
@@ -166,10 +134,7 @@ mod tests {
         };
         let now = Utc::now();
 
-        service
-            .schedule(request, now + Duration::minutes(1), None)
-            .await
-            .unwrap();
+        service.schedule(request, now + Duration::minutes(1), None).await.unwrap();
 
         assert!(service.trigger_due(now).await.unwrap().is_empty());
     }
@@ -194,12 +159,7 @@ mod tests {
             .await
             .unwrap();
 
-        let schedule = service
-            .schedules()
-            .await
-            .into_iter()
-            .find(|schedule| schedule.id == id)
-            .unwrap();
+        let schedule = service.schedules().await.into_iter().find(|schedule| schedule.id == id).unwrap();
 
         assert_eq!(schedule.virtual_machine_id, virtual_machine_id);
         assert_eq!(schedule.destination, destination);
@@ -219,9 +179,7 @@ mod tests {
         for repeat_every in [Duration::zero(), -Duration::minutes(1)] {
             assert!(matches!(
                 service.schedule(request.clone(), Utc::now(), Some(repeat_every)).await,
-                Err(Error::InvalidBackupSchedule(
-                    "repeat interval must be positive"
-                ))
+                Err(Error::InvalidBackupSchedule("repeat interval must be positive"))
             ));
         }
     }
@@ -243,13 +201,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(service.trigger_due(now).await.unwrap().len(), 1);
-        assert!(!service
-            .schedules()
-            .await
-            .into_iter()
-            .find(|schedule| schedule.id == id)
-            .unwrap()
-            .enabled);
+        assert!(!service.schedules().await.into_iter().find(|schedule| schedule.id == id).unwrap().enabled);
         assert!(service.trigger_due(now).await.unwrap().is_empty());
     }
 
@@ -294,10 +246,7 @@ mod tests {
         service.cancel_schedule(id).await.unwrap();
 
         assert!(service.schedules().await.into_iter().all(|schedule| schedule.id != id));
-        assert!(matches!(
-            service.cancel_schedule(id).await,
-            Err(Error::InvalidBackupSchedule("schedule not found"))
-        ));
+        assert!(matches!(service.cancel_schedule(id).await, Err(Error::InvalidBackupSchedule("schedule not found"))));
     }
 
     #[tokio::test]

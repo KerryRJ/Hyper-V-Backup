@@ -5,6 +5,6 @@ use serde::Deserialize;
 #[derive(Debug, Deserialize)]
 pub struct CreateReferencePointResult {
     pub ReturnValue: u32,
-    pub ResultingReferencePoint: Option<String>,
-    pub Job: Option<String>,
+    pub ResultingReferencePoint: Option<Option<String>>,
+    pub Job: Option<Option<String>>,
 }

@@ -14,12 +14,7 @@ impl Host {
     pub async fn get_virtual_machine(&self, id: VmId) -> Result<VirtualMachine, Error> {
         let q = format!("{QUERY} AND Name = '{id}'");
         let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE)?;
-        let machine = connection
-            .async_raw_query::<ComputerSystem>(&q)
-            .await?
-            .into_iter()
-            .next()
-            .ok_or(Error::VirtualMachineNotFound(id))?;
+        let machine = connection.async_raw_query::<ComputerSystem>(&q).await?.into_iter().next().ok_or(Error::VirtualMachineNotFound(id))?;
         Ok(machine.try_into()?)
     }
 
@@ -54,10 +49,7 @@ mod tests {
     #[ignore = "requires a running Hyper-V VM"]
     async fn returns_virtual_machine_by_id() {
         let vm_id = VmId::parse_str("B12E125D-5EDF-40DA-94A0-89BA9836221D").unwrap();
-        let vm = Host::new()
-            .get_virtual_machine(vm_id)
-            .await
-            .expect("expected Hyper-V VM to be found");
+        let vm = Host::new().get_virtual_machine(vm_id).await.expect("expected Hyper-V VM to be found");
         assert_eq!(vm.id(), vm_id);
         assert_eq!(vm.name(), Some("vrt001"));
     }
@@ -65,10 +57,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "requires three running Hyper-V VMs"]
     async fn returns_three_virtual_machines() {
-        let vms = Host::new()
-            .get_virtual_machines()
-            .await
-            .expect("expected Hyper-V VMs to be returned");
+        let vms = Host::new().get_virtual_machines().await.expect("expected Hyper-V VMs to be returned");
         assert_eq!(vms.len(), 3);
     }
 }

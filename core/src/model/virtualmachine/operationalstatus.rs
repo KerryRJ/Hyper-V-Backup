@@ -6,10 +6,7 @@ pub struct OperationalStatus {
 
 impl OperationalStatus {
     pub fn from_values(values: Vec<u16>) -> Result<Self, &'static str> {
-        let primary = values
-            .get(0)
-            .ok_or("OperationalStatus index 0 is empty")?
-            .to_owned();
+        let primary = values.get(0).ok_or("OperationalStatus index 0 is empty")?.to_owned();
         let secondary = values.get(1).map(|v| v.to_owned());
         Ok(Self {
             primary: PrimaryOperationalStatus::try_from(primary)?,

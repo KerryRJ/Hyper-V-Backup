@@ -1,7 +1,5 @@
-mod consistencylevel;
 mod referencepointcreaterequest;
 mod referencepointsettingdata;
-mod referencepointtype;
 
 use crate::model::Error;
 use crate::model::ReferencePointId;
@@ -11,10 +9,10 @@ pub struct ReferencePointService {
     wmi: WmiReferencePointService,
 }
 
-pub use consistencylevel::ConsistencyLevel;
+pub use crate::model::ConsistencyLevel;
 pub use referencepointcreaterequest::ReferencePointCreateRequest;
 pub use referencepointsettingdata::ReferencePointSettingData;
-pub use referencepointtype::ReferencePointType;
+pub use crate::model::ReferencePointType;
 
 impl ReferencePointService {
     pub async fn new() -> Result<Self, Error> {

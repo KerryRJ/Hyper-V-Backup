@@ -61,7 +61,7 @@ impl VirtualSystemReferencePointService {
             &self.path,
             "CreateReferencePoint",
             CreateReferencePointParams {
-                AffectedSystem: wmi::Variant::String(affected_system.path().to_owned()),
+                AffectedSystem: wmi::Variant::String(affected_system.path().as_str().to_owned()),
                 ReferencePointSettings: reference_point_settings_xml.as_deref().unwrap_or_default(),
                 ReferencePointType: reference_point_type,
                 ResultingReferencePoint: resulting_reference_point.as_deref(),
@@ -183,7 +183,7 @@ mod tests {
 
     #[test]
     fn serializes_default_reference_point_settings() {
-        let settings = ReferencePointSettingData::new(ConsistencyLevel::CrashConsistent);
+        let settings = ReferencePointSettingData::new(ConsistencyLevel::Crash);
 
         assert_eq!(
             settings.to_xml(),
@@ -196,7 +196,7 @@ mod tests {
         let settings = ReferencePointSettingData {
             caption: None,
             element_name: Some("reference point".into()),
-            consistency_level: ConsistencyLevel::ApplicationConsistent,
+            consistency_level: ConsistencyLevel::Application,
         };
 
         assert_eq!(

@@ -1,7 +1,7 @@
 use crate::model::{ReferencePointId, VirtualMachine};
 
 use super::referencepointsettingdata::ReferencePointSettingData;
-use super::referencepointtype::ReferencePointType;
+use crate::model::ReferencePointType;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReferencePointCreateRequest {

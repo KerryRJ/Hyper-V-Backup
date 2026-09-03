@@ -1,5 +1,5 @@
 use super::vmid::VmId;
-use crate::model::Error;
+use crate::model::{Error, WmiPath};
 use crate::model::virtualmachine::{
     communicationstate, dedicated, detailedstatus, enableddefault, enabledstate, enhancedsessionmodestate, healthstate, operatingstatus, operationalstatus, powermanagementcapabilities, primarystatus, replicationmode, requestedstate,
     resetcapability, transitioningtostate,
@@ -11,7 +11,7 @@ use uuid::Uuid;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VirtualMachine {
-    path: String,
+    path: WmiPath,
     available_requested_states: Option<Vec<requestedstate::RequestedState>>,
     caption: Option<String>,
     communication_status: Option<communicationstate::CommunicationStatus>,
@@ -54,7 +54,7 @@ pub struct VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn path(&self) -> &str {
+    pub fn path(&self) -> &WmiPath {
         &self.path
     }
 
@@ -182,7 +182,7 @@ impl TryFrom<computersystem::ComputerSystem> for VirtualMachine {
 
     fn try_from(computer_system: computersystem::ComputerSystem) -> Result<Self, Self::Error> {
         Ok(Self {
-            path: computer_system.__Path,
+            path: WmiPath::from(computer_system.__Path),
             available_requested_states: computer_system
                 .AvailableRequestedStates
                 .map(|states| {

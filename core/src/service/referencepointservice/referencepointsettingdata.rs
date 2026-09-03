@@ -1,4 +1,4 @@
-use super::consistencylevel::ConsistencyLevel;
+use crate::model::ConsistencyLevel;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct ReferencePointSettingData {

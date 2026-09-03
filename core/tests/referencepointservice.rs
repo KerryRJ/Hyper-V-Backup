@@ -4,7 +4,7 @@ extern crate std as core;
 use backup_core::model::{Host, ReferencePointId, VmId};
 use backup_core::service::referencepointservice::{ConsistencyLevel, ReferencePointCreateRequest, ReferencePointService, ReferencePointSettingData, ReferencePointType};
 fn reference_point_settings() -> ReferencePointSettingData {
-    ReferencePointSettingData::new(ConsistencyLevel::CrashConsistent)
+    ReferencePointSettingData::new(ConsistencyLevel::Crash)
 }
 
 async fn create_request() -> ReferencePointCreateRequest {

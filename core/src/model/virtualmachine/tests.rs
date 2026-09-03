@@ -1,6 +1,7 @@
 use std::time::Duration;
 
 use crate::model::Error;
+use crate::model::VmId;
 use crate::wmi::msvm::computersystem::ComputerSystem;
 
 use super::{
@@ -25,11 +26,11 @@ use super::{
 #[test]
 fn converts_minimal_computer_system() {
     let mut computer_system = ComputerSystem::default();
-    computer_system.Name = "00000000-0000-0000-0000-000000000000".into();
+    computer_system.Name = "11111111-1111-1111-1111-111111111111".into();
 
     let machine = VirtualMachine::try_from(computer_system).unwrap();
 
-    assert_eq!(machine.id(), uuid::Uuid::nil());
+    assert_eq!(machine.id(), VmId::parse_str("11111111-1111-1111-1111-111111111111").unwrap());
     assert_eq!(machine.caption(), None);
     assert_eq!(machine.on_time(), None);
 }

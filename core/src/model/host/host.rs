@@ -37,7 +37,7 @@ mod tests {
 
     #[tokio::test]
     async fn returns_not_found_for_unknown_vm() {
-        let missing_id = VmId::nil();
+        let missing_id = VmId::parse_str("ffffffff-ffff-ffff-ffff-ffffffffffff").unwrap();
         let result = Host::new().get_virtual_machine(missing_id).await;
         assert!(matches!(
             result,

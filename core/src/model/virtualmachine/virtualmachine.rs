@@ -1,7 +1,3 @@
-use chrono::{DateTime, Utc};
-use std::time::Duration;
-use uuid::Uuid;
-
 use super::vmid::VmId;
 use crate::model::Error;
 use crate::model::virtualmachine::{
@@ -9,6 +5,9 @@ use crate::model::virtualmachine::{
     resetcapability, transitioningtostate,
 };
 use crate::wmi::msvm::computersystem;
+use chrono::{DateTime, Utc};
+use std::time::Duration;
+use uuid::Uuid;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct VirtualMachine {
@@ -95,7 +94,7 @@ impl VirtualMachine {
     pub fn health_state(&self) -> Option<&healthstate::HealthState> {
         self.health_state.as_ref()
     }
-    pub fn id(&self) -> Uuid {
+    pub fn id(&self) -> VmId {
         self.id
     }
     pub fn identifying_descriptions(&self) -> Option<&[String]> {
@@ -223,7 +222,7 @@ impl TryFrom<computersystem::ComputerSystem> for VirtualMachine {
                 .map(|value| enhancedsessionmodestate::EnhancedSessionModeState::try_from(value).map_err(|_| Error::InvalidField("EnhancedSessionModeState")))
                 .transpose()?,
             health_state: computer_system.HealthState.map(|value| healthstate::HealthState::try_from(value).map_err(|_| Error::InvalidField("HealthState"))).transpose()?, // Default Ok = 5
-            id: Uuid::parse_str(&computer_system.Name)?,
+            id: VmId::new(Uuid::parse_str(&computer_system.Name)?).ok_or(Error::InvalidField("Name"))?,
             identifying_descriptions: computer_system.IdentifyingDescriptions, // Always set to null
             instance_id: computer_system.InstanceID,
             last_successful_backup_time: computer_system.LastSuccessfulBackupTime.map(|v| v.0.with_timezone(&Utc)),

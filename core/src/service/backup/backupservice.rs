@@ -25,9 +25,6 @@ impl BackupService {
     }
 
     pub async fn start(&self, request: BackupRequest) -> Result<BackupId, Error> {
-        if request.virtual_machine_id.is_nil() {
-            return Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"));
-        }
         if request.destination.as_os_str().is_empty() {
             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
         }
@@ -40,9 +37,6 @@ impl BackupService {
     }
 
     pub async fn start_with_reference_point(&self, request: BackupRequest, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<BackupId, Error> {
-        if request.virtual_machine_id.is_nil() {
-            return Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"));
-        }
         if request.destination.as_os_str().is_empty() {
             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
         }
@@ -95,29 +89,23 @@ mod tests {
 
     use chrono::Duration;
 
+    use crate::model::VmId;
+
     use super::*;
+
+    fn vm_id() -> VmId {
+        VmId::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
+    }
 
     fn service() -> BackupService {
         BackupService::new(Arc::new(Host::new()))
     }
 
     #[tokio::test]
-    async fn rejects_nil_virtual_machine_id() {
-        let result = service()
-            .start(BackupRequest {
-                virtual_machine_id: BackupId::nil(),
-                destination: PathBuf::from("backup"),
-            })
-            .await;
-
-        assert!(matches!(result, Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"))));
-    }
-
-    #[tokio::test]
     async fn rejects_empty_destination() {
         let result = service()
             .start(BackupRequest {
-                virtual_machine_id: BackupId::new_v4(),
+                virtual_machine_id: vm_id(),
                 destination: PathBuf::new(),
             })
             .await;
@@ -129,7 +117,7 @@ mod tests {
     async fn future_schedule_does_not_trigger_early() {
         let service = service();
         let request = BackupRequest {
-            virtual_machine_id: BackupId::new_v4(),
+            virtual_machine_id: vm_id(),
             destination: PathBuf::from("backup"),
         };
         let now = Utc::now();
@@ -142,7 +130,7 @@ mod tests {
     #[tokio::test]
     async fn stores_schedule_configuration() {
         let service = service();
-        let virtual_machine_id = BackupId::new_v4();
+        let virtual_machine_id = vm_id();
         let destination = PathBuf::from("backup");
         let first_run_at = Utc::now() + Duration::minutes(5);
         let repeat_every = Some(Duration::hours(1));
@@ -172,7 +160,7 @@ mod tests {
     async fn rejects_non_positive_repeat_interval() {
         let service = service();
         let request = BackupRequest {
-            virtual_machine_id: BackupId::new_v4(),
+            virtual_machine_id: vm_id(),
             destination: PathBuf::from("backup"),
         };
 
@@ -191,7 +179,7 @@ mod tests {
         let id = service
             .schedule(
                 BackupRequest {
-                    virtual_machine_id: BackupId::new_v4(),
+                    virtual_machine_id: vm_id(),
                     destination: PathBuf::from("backup"),
                 },
                 now,
@@ -212,7 +200,7 @@ mod tests {
         let id = service
             .schedule(
                 BackupRequest {
-                    virtual_machine_id: BackupId::new_v4(),
+                    virtual_machine_id: vm_id(),
                     destination: PathBuf::from("backup"),
                 },
                 now,
@@ -234,7 +222,7 @@ mod tests {
         let id = service
             .schedule(
                 BackupRequest {
-                    virtual_machine_id: BackupId::new_v4(),
+                    virtual_machine_id: vm_id(),
                     destination: PathBuf::from("backup"),
                 },
                 Utc::now(),
@@ -258,7 +246,7 @@ mod tests {
             service
                 .schedule(
                     BackupRequest {
-                        virtual_machine_id: BackupId::new_v4(),
+                        virtual_machine_id: vm_id(),
                         destination: PathBuf::from("backup"),
                     },
                     now,
@@ -279,7 +267,7 @@ mod tests {
         service
             .schedule(
                 BackupRequest {
-                    virtual_machine_id: BackupId::new_v4(),
+                    virtual_machine_id: vm_id(),
                     destination: PathBuf::from("backup"),
                 },
                 now - Duration::minutes(5),

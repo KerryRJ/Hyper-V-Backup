@@ -153,9 +153,6 @@ impl Scheduler {
     }
 
     fn validate_request(request: &BackupRequest) -> Result<(), Error> {
-        if request.virtual_machine_id.is_nil() {
-            return Err(Error::InvalidBackupRequest("virtual machine id cannot be nil"));
-        }
         if request.destination.as_os_str().is_empty() {
             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
         }

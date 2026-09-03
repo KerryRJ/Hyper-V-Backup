@@ -53,7 +53,7 @@ impl BackupActor {
 
     pub(crate) async fn cancel(&self, id: BackupId) -> Result<(), Error> {
         let cancellations = self.cancellations.read().await;
-        cancellations.get(&id).ok_or(Error::BackupNotFound(id))?.cancel();
+        cancellations.get(&id).ok_or(Error::BackupNotFound(id.into()))?.cancel();
         Ok(())
     }
 
@@ -178,7 +178,13 @@ impl BackupActor {
 mod tests {
     use std::path::PathBuf;
 
+    use crate::model::VmId;
+
     use super::*;
+
+    fn vm_id() -> VmId {
+        VmId::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
+    }
 
     #[tokio::test]
     async fn starts_without_status_for_unknown_backup() {
@@ -198,7 +204,7 @@ mod tests {
     async fn cancelled_backup_does_not_start_processing() {
         let actor = BackupActor::new();
         let request = BackupRequest {
-            virtual_machine_id: BackupId::new_v4(),
+            virtual_machine_id: vm_id(),
             destination: PathBuf::from("backup"),
         };
         let id = actor.start(request.clone()).await.unwrap();

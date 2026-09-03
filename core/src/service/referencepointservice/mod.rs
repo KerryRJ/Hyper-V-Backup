@@ -24,12 +24,7 @@ impl ReferencePointService {
     pub async fn create(&self, request: &ReferencePointCreateRequest) -> Result<ReferencePointId, Error> {
         let result = self
             .wmi
-            .create_reference_point(
-                &request.affected_system,
-                request.reference_point_settings.as_ref(),
-                request.reference_point_type as u16,
-                request.resulting_reference_point,
-            )
+            .create_reference_point(&request.affected_system, request.reference_point_settings.as_ref(), request.reference_point_type as u16, request.resulting_reference_point)
             .await?;
         Ok(WmiReferencePointService::reference_point(result)?)
     }

@@ -143,9 +143,14 @@ impl VirtualSystemReferencePointService {
     }
 
     pub fn reference_point(result: CreateReferencePointResult) -> wmi::WMIResult<ReferencePointId> {
-        let id = result.ResultingReferencePoint.as_ref().and_then(|id| id.as_deref())
+        let id = result
+            .ResultingReferencePoint
+            .as_ref()
+            .and_then(|id| id.as_deref())
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no reference point".into()))?;
-        uuid::Uuid::parse_str(id).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid reference point identifier: {error}").into()))
+        uuid::Uuid::parse_str(id)
+            .map(ReferencePointId::from)
+            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid reference point identifier: {error}").into()))
     }
 
     pub async fn destroy_reference_point(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
@@ -206,7 +211,7 @@ mod tests {
         })
         .unwrap();
 
-        assert_eq!(reference_point, uuid::Uuid::nil());
+        assert_eq!(reference_point, ReferencePointId::from(uuid::Uuid::nil()));
     }
 
     #[test]

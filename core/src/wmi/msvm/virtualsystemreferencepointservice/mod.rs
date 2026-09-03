@@ -148,9 +148,8 @@ impl VirtualSystemReferencePointService {
             .as_ref()
             .and_then(|id| id.as_deref())
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no reference point".into()))?;
-        uuid::Uuid::parse_str(id)
-            .map(ReferencePointId::from)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid reference point identifier: {error}").into()))
+        let id = uuid::Uuid::parse_str(id).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid reference point identifier: {error}").into()))?;
+        ReferencePointId::try_from(id).map_err(|error| wmi::WMIError::ConvertVariantError(error.into()))
     }
 
     pub async fn destroy_reference_point(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
@@ -203,15 +202,14 @@ mod tests {
     use super::*;
 
     #[test]
-    fn converts_created_reference_point() {
-        let reference_point = VirtualSystemReferencePointService::reference_point(CreateReferencePointResult {
+    fn rejects_nil_created_reference_point() {
+        let result = VirtualSystemReferencePointService::reference_point(CreateReferencePointResult {
             ReturnValue: 0,
             ResultingReferencePoint: Some(Some("00000000-0000-0000-0000-000000000000".into())),
             Job: None,
-        })
-        .unwrap();
+        });
 
-        assert_eq!(reference_point, ReferencePointId::from(uuid::Uuid::nil()));
+        assert!(result.is_err());
     }
 
     #[test]

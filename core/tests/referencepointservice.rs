@@ -52,8 +52,6 @@ async fn creates_reference_point_with_wmi() {
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
     let reference_point = create_reference_point(&service).await;
 
-    assert!(!reference_point.is_nil());
-
     service.destroy(reference_point).await.expect("reference point should be destroyed");
 }
 

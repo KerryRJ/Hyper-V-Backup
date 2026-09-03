@@ -1,6 +1,6 @@
 mod consistencylevel;
 mod referencepointcreaterequest;
-mod referencepointsettingsdata;
+mod referencepointsettingdata;
 mod referencepointtype;
 
 use crate::model::Error;
@@ -13,7 +13,7 @@ pub struct ReferencePointService {
 
 pub use consistencylevel::ConsistencyLevel;
 pub use referencepointcreaterequest::ReferencePointCreateRequest;
-pub use referencepointsettingsdata::ReferencePointSettingsData;
+pub use referencepointsettingdata::ReferencePointSettingData;
 pub use referencepointtype::ReferencePointType;
 
 impl ReferencePointService {

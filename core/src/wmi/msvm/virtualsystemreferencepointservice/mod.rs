@@ -20,7 +20,7 @@ use self::referencepointinput::ReferencePointInput;
 use self::virtualsystemreferencepointserviceclass::VirtualSystemReferencePointServiceClass;
 use self::virtualsystemreferencepointserviceinstance::VirtualSystemReferencePointServiceInstance;
 use crate::model::{ReferencePointId, VirtualMachine};
-use crate::service::referencepointservice::ReferencePointSettingsData;
+use crate::service::referencepointservice::ReferencePointSettingData;
 use crate::wmi::HYPER_V_NAMESPACE;
 use futures::StreamExt;
 
@@ -48,14 +48,14 @@ impl VirtualSystemReferencePointService {
     }
 
     pub async fn create_reference_point(
-        &self, affected_system: &VirtualMachine, reference_point_settings: Option<&ReferencePointSettingsData>, reference_point_type: u16, resulting_reference_point: Option<ReferencePointId>,
+        &self, affected_system: &VirtualMachine, reference_point_settings: Option<&ReferencePointSettingData>, reference_point_type: u16, resulting_reference_point: Option<ReferencePointId>,
     ) -> wmi::WMIResult<CreateReferencePointResult> {
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
 
         let resulting_reference_point = resulting_reference_point.map(|id| id.to_string());
-        let reference_point_settings_xml = reference_point_settings.map(ReferencePointSettingsData::to_xml);
+        let reference_point_settings_xml = reference_point_settings.map(ReferencePointSettingData::to_xml);
 
         let result: CreateReferencePointResult = self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
             &self.path,
@@ -157,6 +157,7 @@ impl VirtualSystemReferencePointService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::service::referencepointservice::ConsistencyLevel;
 
     #[test]
     fn rejects_nil_created_reference_point() {
@@ -181,35 +182,26 @@ mod tests {
     }
 
     #[test]
-    fn omits_empty_reference_point_settings_parameter() {
-        let settings = ReferencePointSettingsData::new();
+    fn serializes_default_reference_point_settings() {
+        let settings = ReferencePointSettingData::new(ConsistencyLevel::CrashConsistent);
 
-        assert!(
-            None::<&ReferencePointSettingsData>
-                .filter(|settings| settings.element_name.is_some() || settings.caption.is_some() || settings.description.is_some() || settings.consistency_level.is_some())
-                .map(ReferencePointSettingsData::to_xml)
-                .is_none()
-        );
-        assert!(
-            Some(&settings)
-                .filter(|settings| settings.element_name.is_some() || settings.caption.is_some() || settings.description.is_some() || settings.consistency_level.is_some())
-                .map(ReferencePointSettingsData::to_xml)
-                .is_none()
+        assert_eq!(
+            settings.to_xml(),
+            "<INSTANCE CLASSNAME=\"Msvm_VirtualSystemReferencePointSettingData\"><PROPERTY NAME=\"ConsistencyLevel\" TYPE=\"uint8\"><VALUE>0</VALUE></PROPERTY></INSTANCE>"
         );
     }
 
     #[test]
     fn serializes_only_populated_reference_point_settings() {
-        let settings = ReferencePointSettingsData {
-            element_name: Some("reference point".into()),
+        let settings = ReferencePointSettingData {
             caption: None,
-            description: None,
-            consistency_level: None,
+            element_name: Some("reference point".into()),
+            consistency_level: ConsistencyLevel::ApplicationConsistent,
         };
 
         assert_eq!(
             settings.to_xml(),
-            "<INSTANCE CLASSNAME=\"Msvm_VirtualSystemReferencePointSettingData\"><PROPERTY NAME=\"ElementName\" TYPE=\"string\"><VALUE>reference point</VALUE></PROPERTY></INSTANCE>"
+            "<INSTANCE CLASSNAME=\"Msvm_VirtualSystemReferencePointSettingData\"><PROPERTY NAME=\"ConsistencyLevel\" TYPE=\"uint8\"><VALUE>1</VALUE></PROPERTY><PROPERTY NAME=\"ElementName\" TYPE=\"string\"><VALUE>reference point</VALUE></PROPERTY></INSTANCE>"
         );
     }
 }

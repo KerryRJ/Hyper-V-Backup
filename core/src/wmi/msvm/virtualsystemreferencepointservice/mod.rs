@@ -5,8 +5,10 @@ mod createreferencepointparams;
 mod createreferencepointresult;
 mod exportreferencepointinput;
 mod importreferencepointmetadatainput;
+mod jobstate;
 mod methodresult;
 mod referencepointinput;
+mod returnvalue;
 mod virtualsystemreferencepointserviceclass;
 mod virtualsystemreferencepointserviceinstance;
 
@@ -15,8 +17,10 @@ use self::createreferencepointparams::CreateReferencePointParams;
 use self::createreferencepointresult::CreateReferencePointResult;
 use self::exportreferencepointinput::ExportReferencePointInput;
 use self::importreferencepointmetadatainput::ImportReferencePointMetadataInput;
+use self::jobstate::JobState;
 use self::methodresult::MethodResult;
 use self::referencepointinput::ReferencePointInput;
+use self::returnvalue::ReturnValue;
 use self::virtualsystemreferencepointserviceclass::VirtualSystemReferencePointServiceClass;
 use self::virtualsystemreferencepointserviceinstance::VirtualSystemReferencePointServiceInstance;
 use crate::model::{ReferencePoint, ReferencePointId, VirtualMachine};
@@ -30,11 +34,6 @@ pub struct VirtualSystemReferencePointService {
     connection: wmi::WMIConnection,
     path: String,
 }
-
-const JOB_STATE_COMPLETED: u16 = 7;
-const JOB_STATE_TERMINATED: u16 = 8;
-const JOB_STATE_KILLED: u16 = 9;
-const JOB_STATE_EXCEPTION: u16 = 10;
 
 impl VirtualSystemReferencePointService {
     pub async fn new() -> wmi::WMIResult<Self> {
@@ -77,33 +76,40 @@ impl VirtualSystemReferencePointService {
             result.ResultingReferencePoint
         );
 
-        let return_value = if result.ReturnValue == 4096 {
+        let return_value = ReturnValue::try_from(result.ReturnValue).map_err(|return_value| {
+            wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint failed with return value {return_value}").into())
+        })?;
+        let return_value = if return_value == ReturnValue::MethodParametersCheckedAndJobStarted {
             let job = result.Job.as_deref().ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no job for asynchronous operation".into()))?;
             let job: String = self.get_job_instance(job).await?;
             log::info!("Waiting for CreateReferencePoint job {job}");
-            Self::wait_for_job(&job, &mut job_events).await? as u32
+
+            let job_state = Self::wait_for_job(&job, &mut job_events).await;
+            match job_state {
+                Ok(JobState::Completed) => {
+                    ReturnValue::Completed
+                }
+                Ok(state) => {
+                    log::error!("CreateReferencePoint job {job} returned unexpected state: {state:?}");
+                    return Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint job {job} returned unexpected state: {state:?}").into()));
+                }
+                Err(error) => {
+                    log::error!("CreateReferencePoint job {job} failed: {error}");
+                    return Err(error);
+                }
+            }
         } else {
-            result.ReturnValue
+            return_value
         };
 
-        Self::validate_return_value(return_value, "CreateReferencePoint")?;
+        log::debug!("CreateReferencePoint completed with return value {return_value:?}");
 
         let job_path = result.Job.as_deref().ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no job".into()))?;
         let reference_point = self.get_reference_point_for_job(job_path).await?;
         ReferencePoint::try_from(reference_point).map_err(|error| wmi::WMIError::ConvertVariantError(error.to_string().into()))
     }
 
-    fn validate_return_value(return_value: u32, operation: &str) -> wmi::WMIResult<()> {
-        if return_value == 0 || return_value == 7 || return_value == 4096 {
-            log::debug!("{operation} completed with return value {return_value}");
-            return Ok(());
-        }
-
-        log::error!("{operation} failed with return value {return_value}");
-        Err(wmi::WMIError::ConvertVariantError(format!("{operation} failed with return value {return_value}").into()))
-    }
-
-    async fn wait_for_job(job_id: &str, job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin)) -> wmi::WMIResult<u16> {
+    async fn wait_for_job(job_id: &str, job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin)) -> wmi::WMIResult<JobState> {
         log::debug!("Waiting for concrete job {job_id}");
         timeout(Duration::from_secs(1800), async {
             while let Some(result) = job_events.next().await {
@@ -114,19 +120,19 @@ impl VirtualSystemReferencePointService {
                     continue;
                 }
 
-                match event.TargetInstance.JobState {
-                    JOB_STATE_COMPLETED => {
+                match JobState::try_from(event.TargetInstance.JobState) {
+                    Ok(JobState::Completed) => {
                         log::info!("Concrete job {job_id} completed");
-                        return Ok(JOB_STATE_COMPLETED);
+                        return Ok(JobState::Completed);
                     }
-                    JOB_STATE_TERMINATED | JOB_STATE_KILLED | JOB_STATE_EXCEPTION => {
+                    Err(JobState::Terminated | JobState::Killed | JobState::Exception) => {
                         let description = event.TargetInstance.ErrorDescription.unwrap_or_else(|| "no error description".into());
                         let error_code = event.TargetInstance.ErrorCode;
                         log::error!("Concrete job {job_id} failed {error_code}: {description}");
                         return Err(wmi::WMIError::ConvertVariantError(format!("Concrete job failed {error_code}: {description}").into()));
                     }
                     state => {
-                        log::trace!("Concrete job {job_id} reported nonterminal state {state}; waiting for next event");
+                        log::trace!("Concrete job {job_id} reported nonterminal state {state:?}; waiting for next event");
                     }
                 }
             }
@@ -160,7 +166,7 @@ impl VirtualSystemReferencePointService {
         path.rsplit_once(':').map_or(path, |(_, relative_path)| relative_path)
     }
 
-    pub async fn destroy_reference_point(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
+    pub async fn destroy_reference_point(&self, affected_reference_point: &str) -> wmi::WMIResult<ReturnValue> {
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
@@ -172,21 +178,39 @@ impl VirtualSystemReferencePointService {
             },
         )?;
 
-        let return_value = if result.ReturnValue == 4096 {
+        let return_value = ReturnValue::try_from(result.ReturnValue).map_err(|return_value| {
+            wmi::WMIError::ConvertVariantError(format!("DestroyReferencePoint failed with return value {return_value}").into())
+        })?;
+
+        let return_value = if return_value == ReturnValue::MethodParametersCheckedAndJobStarted {
             let job = result.Job.as_deref().ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroyReferencePoint returned no job for asynchronous operation".into()))?;
             let job_id = self.get_job_instance(job).await?;
-            Self::wait_for_job(&job_id, &mut job_events).await? as u32
+            let job_state = Self::wait_for_job(&job_id, &mut job_events).await;
+            match job_state {
+                Ok(JobState::Completed) => ReturnValue::Completed,
+                Ok(state) => {
+                    log::error!("DestroyReferencePoint job {job_id} returned unexpected state: {state:?}");
+                    return Err(wmi::WMIError::ConvertVariantError(format!("DestroyReferencePoint job {job_id} returned unexpected state: {state:?}").into()));
+                }
+                Err(error) => {
+                    log::error!("DestroyReferencePoint job {job_id} failed: {error}");
+                    return Err(error);
+                }
+            }
         } else {
-            result.ReturnValue
+            return_value
         };
 
-        Self::validate_return_value(return_value, "DestroyReferencePoint")?;
-        Ok(MethodResult { ReturnValue: return_value, ..result })
+        log::debug!("DestroyReferencePoint completed with return value {return_value:?}");
+        Ok(return_value)
     }
 
     #[allow(dead_code)]
-    pub async fn export_reference_point(&self, reference_point: &str, export_directory: &str, export_setting_data: &str) -> wmi::WMIResult<MethodResult> {
-        self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
+    pub async fn export_reference_point(&self, reference_point: &str, export_directory: &str, export_setting_data: &str) -> wmi::WMIResult<ReturnValue> {
+        let mut job_events = self
+            .connection
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let result: MethodResult = self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
             &self.path,
             "ExportReferencePoint",
             ExportReferencePointInput {
@@ -194,12 +218,41 @@ impl VirtualSystemReferencePointService {
                 ExportDirectory: export_directory,
                 ExportSettingData: export_setting_data,
             },
-        )
+        )?;
+
+        let return_value = ReturnValue::try_from(result.ReturnValue).map_err(|return_value| {
+            wmi::WMIError::ConvertVariantError(format!("ExportReferencePoint failed with return value {return_value}").into())
+        })?;
+
+        let return_value = if return_value == ReturnValue::MethodParametersCheckedAndJobStarted {
+            let job = result.Job.as_deref().ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportReferencePoint returned no job for asynchronous operation".into()))?;
+            let job_id = self.get_job_instance(job).await?;
+            let job_state = Self::wait_for_job(&job_id, &mut job_events).await;
+            match job_state {
+                Ok(JobState::Completed) => ReturnValue::Completed,
+                Ok(state) => {
+                    log::error!("ExportReferencePoint job {job_id} returned unexpected state: {state:?}");
+                    return Err(wmi::WMIError::ConvertVariantError(format!("ExportReferencePoint job {job_id} returned unexpected state: {state:?}").into()));
+                }
+                Err(error) => {
+                    log::error!("ExportReferencePoint job {job_id} failed: {error}");
+                    return Err(error);
+                }
+            }
+        } else {
+            return_value
+        };
+
+        log::debug!("ExportReferencePoint completed with return value {return_value:?}");
+        Ok(return_value)
     }
 
     #[allow(dead_code)]
-    pub async fn import_reference_point_metadata(&self, affected_system: &str, config_file_path: &str, runtime_state_file_path: &str) -> wmi::WMIResult<MethodResult> {
-        self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
+    pub async fn import_reference_point_metadata(&self, affected_system: &str, config_file_path: &str, runtime_state_file_path: &str) -> wmi::WMIResult<ReturnValue> {
+        let mut job_events = self
+            .connection
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let result: MethodResult = self.connection.exec_instance_method::<VirtualSystemReferencePointServiceClass, _>(
             &self.path,
             "ImportReferencePointMetadata",
             ImportReferencePointMetadataInput {
@@ -207,10 +260,36 @@ impl VirtualSystemReferencePointService {
                 ConfigFilePath: config_file_path,
                 RuntimeStateFilePath: runtime_state_file_path,
             },
-        )
+        )?;
+
+        let return_value = ReturnValue::try_from(result.ReturnValue).map_err(|return_value| {
+            wmi::WMIError::ConvertVariantError(format!("ImportReferencePointMetadata failed with return value {return_value}").into())
+        })?;
+
+        let return_value = if return_value == ReturnValue::MethodParametersCheckedAndJobStarted {
+            let job = result.Job.as_deref().ok_or_else(|| wmi::WMIError::ConvertVariantError("ImportReferencePointMetadata returned no job for asynchronous operation".into()))?;
+            let job_id = self.get_job_instance(job).await?;
+            let job_state = Self::wait_for_job(&job_id, &mut job_events).await;
+            match job_state {
+                Ok(JobState::Completed) => ReturnValue::Completed,
+                Ok(state) => {
+                    log::error!("ImportReferencePointMetadata job {job_id} returned unexpected state: {state:?}");
+                    return Err(wmi::WMIError::ConvertVariantError(format!("ImportReferencePointMetadata job {job_id} returned unexpected state: {state:?}").into()));
+                }
+                Err(error) => {
+                    log::error!("ImportReferencePointMetadata job {job_id} failed: {error}");
+                    return Err(error);
+                }
+            }
+        } else {
+            return_value
+        };
+
+        log::debug!("ImportReferencePointMetadata completed with return value {return_value:?}");
+        Ok(return_value)
     }
 
-    pub async fn remove_associated_data(&self, affected_reference_point: &str) -> wmi::WMIResult<MethodResult> {
+    pub async fn remove_associated_data(&self, affected_reference_point: &str) -> wmi::WMIResult<ReturnValue> {
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
@@ -222,16 +301,31 @@ impl VirtualSystemReferencePointService {
             },
         )?;
 
-        let return_value = if result.ReturnValue == 4096 {
+        let return_value = ReturnValue::try_from(result.ReturnValue).map_err(|return_value| {
+            wmi::WMIError::ConvertVariantError(format!("RemoveAssociatedData failed with return value {return_value}").into())
+        })?;
+
+        let return_value = if return_value == ReturnValue::MethodParametersCheckedAndJobStarted {
             let job = result.Job.as_deref().ok_or_else(|| wmi::WMIError::ConvertVariantError("RemoveAssociatedData returned no job for asynchronous operation".into()))?;
             let job_id = self.get_job_instance(job).await?;
-            Self::wait_for_job(&job_id, &mut job_events).await? as u32
+            let job_state = Self::wait_for_job(&job_id, &mut job_events).await;
+            match job_state {
+                Ok(JobState::Completed) => ReturnValue::Completed,
+                Ok(state) => {
+                    log::error!("RemoveAssociatedData job {job_id} returned unexpected state: {state:?}");
+                    return Err(wmi::WMIError::ConvertVariantError(format!("RemoveAssociatedData job {job_id} returned unexpected state: {state:?}").into()));
+                }
+                Err(error) => {
+                    log::error!("RemoveAssociatedData job {job_id} failed: {error}");
+                    return Err(error);
+                }
+            }
         } else {
-            result.ReturnValue
+            return_value
         };
 
-        Self::validate_return_value(return_value, "RemoveAssociatedData")?;
-        Ok(MethodResult { ReturnValue: return_value, ..result })
+        log::debug!("RemoveAssociatedData completed with return value {return_value:?}");
+        Ok(return_value)
     }
 }
 

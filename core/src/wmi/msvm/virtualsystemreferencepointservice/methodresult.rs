@@ -4,6 +4,6 @@ use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
 pub struct MethodResult {
-    pub ReturnValue: u32,
+    pub ReturnValue: u16,
     pub Job: Option<String>,
 }

@@ -3,10 +3,15 @@
 use serde::Deserialize;
 
 #[derive(Debug, Deserialize)]
+pub(super) struct ConcreteJobConfiguration {
+    pub(super) InstanceID: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub(super) struct ConcreteJob {
-    pub(super) __PATH: Option<Option<String>>,
+    pub(super) InstanceID: String,
     pub(super) JobState: u16,
-    pub(super) ErrorCode: Option<u32>,
+    pub(super) ErrorCode: u16,
     pub(super) ErrorDescription: Option<String>,
 }
 

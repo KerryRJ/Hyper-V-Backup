@@ -3,6 +3,11 @@ extern crate std as core;
 
 use backup_core::model::{Host, ReferencePoint, VmId};
 use backup_core::service::referencepointservice::{ConsistencyLevel, ReferencePointCreateRequest, ReferencePointService, ReferencePointSettingData, ReferencePointType};
+
+fn init_logger() {
+    let _ = env_logger::builder().is_test(true).try_init();
+}
+
 fn reference_point_settings() -> ReferencePointSettingData {
     ReferencePointSettingData::new(ConsistencyLevel::Crash)
 }
@@ -36,16 +41,18 @@ async fn create_reference_point(service: &ReferencePointService) -> ReferencePoi
 #[tokio::test]
 #[ignore = "requires a configured Hyper-V VM and reference-point settings"]
 async fn creates_reference_point_with_wmi() {
+    init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
     let reference_point = create_reference_point(&service).await;
 
-    service.destroy(&reference_point).await.expect("reference point should be destroyed");
+    service.cleanup(&reference_point, false).await.expect("reference point and associated data should be destroyed");
 }
 
 #[cfg(windows)]
 #[tokio::test]
 #[ignore = "requires a configured Hyper-V VM and reference-point settings"]
 async fn cleanup_destroys_reference_point_when_not_retained() {
+    init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
     let reference_point = create_reference_point(&service).await;
 
@@ -56,6 +63,7 @@ async fn cleanup_destroys_reference_point_when_not_retained() {
 #[tokio::test]
 #[ignore = "requires a configured Hyper-V VM and reference-point settings"]
 async fn cleanup_removes_associated_data_when_retained() {
+    init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
     let reference_point = create_reference_point(&service).await;
 

@@ -20,11 +20,11 @@ impl ReferencePointService {
     }
 
     pub async fn create(&self, request: &ReferencePointCreateRequest) -> Result<ReferencePoint, Error> {
-        let result = self
+        self
             .wmi
             .create_reference_point(&request.affected_system, request.reference_point_settings.as_ref(), request.reference_point_type as u16, request.resulting_reference_point)
-            .await?;
-        Ok(self.wmi.reference_point(result).await?)
+            .await
+            .map_err(Error::from)
     }
 
     pub async fn destroy(&self, reference_point: &ReferencePoint) -> Result<(), Error> {
@@ -41,6 +41,7 @@ impl ReferencePointService {
         if retain_for_incremental {
             self.remove_associated_data(reference_point).await
         } else {
+            self.remove_associated_data(reference_point).await?;
             self.destroy(reference_point).await
         }
     }

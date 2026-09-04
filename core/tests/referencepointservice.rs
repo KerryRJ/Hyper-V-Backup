@@ -37,13 +37,19 @@ async fn create_reference_point(service: &ReferencePointService) -> ReferencePoi
     service.create(&create_request().await).await.expect("reference point should be created")
 }
 
+async fn create_rct_reference_point(service: &ReferencePointService) -> ReferencePoint {
+    let reference_point = create_reference_point(service).await;
+    assert_eq!(reference_point.reference_point_type(), ReferencePointType::RctBased);
+    reference_point
+}
+
 #[cfg(windows)]
 #[tokio::test]
 #[ignore = "requires a configured Hyper-V VM and reference-point settings"]
 async fn creates_reference_point_with_wmi() {
     init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
-    let reference_point = create_reference_point(&service).await;
+    let reference_point = create_rct_reference_point(&service).await;
 
     service.cleanup(&reference_point, false).await.expect("reference point and associated data should be destroyed");
 }
@@ -54,9 +60,10 @@ async fn creates_reference_point_with_wmi() {
 async fn cleanup_destroys_reference_point_when_not_retained() {
     init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
-    let reference_point = create_reference_point(&service).await;
+    let reference_point = create_rct_reference_point(&service).await;
 
     service.cleanup(&reference_point, false).await.expect("cleanup should destroy the reference point");
+    assert!(service.destroy(&reference_point).await.is_err(), "destroy should fail after cleanup destroyed the reference point");
 }
 
 #[cfg(windows)]
@@ -65,8 +72,21 @@ async fn cleanup_destroys_reference_point_when_not_retained() {
 async fn cleanup_removes_associated_data_when_retained() {
     init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
-    let reference_point = create_reference_point(&service).await;
+    let reference_point = create_rct_reference_point(&service).await;
 
     service.cleanup(&reference_point, true).await.expect("cleanup should remove associated data");
+    service.remove_associated_data(&reference_point).await.expect("retained reference point should remain usable after cleanup");
     service.destroy(&reference_point).await.expect("reference point should be destroyed after retained cleanup");
+}
+
+#[cfg(windows)]
+#[tokio::test]
+#[ignore = "requires a configured Hyper-V VM and reference-point settings"]
+async fn cleanup_reports_error_for_destroyed_reference_point() {
+    init_logger();
+    let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
+    let reference_point = create_rct_reference_point(&service).await;
+
+    service.cleanup(&reference_point, false).await.expect("initial cleanup should destroy the reference point");
+    assert!(service.cleanup(&reference_point, false).await.is_err(), "cleanup should report an error for a destroyed reference point");
 }

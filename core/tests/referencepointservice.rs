@@ -50,6 +50,15 @@ async fn creates_reference_point_with_wmi() {
     init_logger();
     let service = ReferencePointService::new().await.expect("Hyper-V reference-point service should be available");
     let reference_point = create_rct_reference_point(&service).await;
+    println!("Path: {:?}", reference_point.path());
+    println!("Instance ID: {}", reference_point.instance_id());
+    println!("Reference point type: {:?}", reference_point.reference_point_type());
+    println!("Consistency level: {:?}", reference_point.consistency_level());
+    println!("Virtual system identifier: {:?}", reference_point.virtual_system_identifier());
+    println!("Has associated data: {}", reference_point.has_associated_data());
+    println!("Virtual disk identifiers: {:?}", reference_point.virtual_disk_identifiers());
+    println!("Resilient change tracking identifiers: {:?}", reference_point.resilient_change_tracking_identifiers());
+    tokio::time::sleep(std::time::Duration::from_secs(5)).await;
 
     service.cleanup(&reference_point, false).await.expect("reference point and associated data should be destroyed");
 }

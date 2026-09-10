@@ -20,12 +20,12 @@ impl Job {
         path: String,
         job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin),
     ) -> wmi::WMIResult<Self> {
-        let job_id = connection.get_by_path::<JobOut>(&path)?.instance_id().to_owned();
+        let job_id = connection.get_by_path::<JobOut>(&path)?.InstanceID.to_owned();
         while let Some(result) = job_events.next().await {
             let event = result?;
             let concrete_job = event.TargetInstance;
-            if concrete_job.instance_id() != job_id {
-                log::trace!("Ignoring concrete job event for instance ID {} while waiting for {}", concrete_job.instance_id(), job_id);
+            if concrete_job.InstanceID != job_id {
+                log::trace!("Ignoring concrete job event for instance ID {} while waiting for {}", concrete_job.InstanceID, job_id);
                 continue;
             }
             match concrete_job.JobState {

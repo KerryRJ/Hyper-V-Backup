@@ -10,9 +10,3 @@ pub(super) struct JobOut {
     pub(super) TimeOfLastStateChange: WMIDateTime,
     pub(super) TimeBeforeRemoval: WMIDuration,
 }
-
-impl JobOut {
-    pub(super) fn instance_id(&self) -> &str {
-        &self.InstanceID
-    }
-}

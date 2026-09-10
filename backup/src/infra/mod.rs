@@ -93,7 +93,7 @@ use recoveryaction::RecoveryAction;
 use referencepointype::ReferencePointType;
 use requestedstate::RequestedState;
 use resilientchangetrackingid::ResilientChangeTrackingId;
-use result::{ConvertToReferencePointResult, CreateSnapshotResult, DestroyReferencePointResult, DestroySnapshotResult};
+use result::Result as MethodResult;
 use runday::RunDay;
 use rundayofweek::RunDayOfWeek;
 use runmonth::RunMonth;

@@ -106,7 +106,7 @@ impl VirtualSystemReferencePointService {
             .connection
             .exec_method(&self.path, "DestroyReferencePoint", Some(&input))?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroyReferencePoint returned no output".into()))?
-            .into_desr::<DestroyReferencePointResult>()?;
+            .into_desr::<MethodResult>()?;
 
         let return_value = ReturnValue::try_from(result.return_value).map_err(|value| {
             wmi::WMIError::ConvertVariantError(format!("DestroyReferencePoint returned unknown status {value}").into())

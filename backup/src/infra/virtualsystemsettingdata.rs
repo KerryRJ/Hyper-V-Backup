@@ -143,6 +143,10 @@ impl VirtualSystemSettingData {
     pub(super) fn is_snapshot(&self) -> bool {
         self.description == "Snapshot settings for the virtual machine"
     }
+
+    pub(super) fn instance_id(&self) -> &str {
+        self.instance_id.as_ref()
+    }
 }
 
 impl<'de> Deserialize<'de> for VirtualSystemSettingData {

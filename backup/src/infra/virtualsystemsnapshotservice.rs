@@ -137,7 +137,7 @@ impl VirtualSystemSnapshotService {
         let snapshot_setting_data_xml_string = snapshot_settings.as_ref().map(|rps| rps.to_xml())
             .transpose()
             .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
-            .unwrap_or_default();            
+            .unwrap_or_default();
         let snapshot_type_value = u16::from(snapshot_type);
         let settings_supplied = !snapshot_setting_data_xml_string.is_empty();
         let input = create_snapshot_method_class.spawn_instance()?;
@@ -193,7 +193,7 @@ impl VirtualSystemSnapshotService {
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshot method signature not found".into()))?;
         let mut job_events = self
             .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = destroy_snapshot_method_class.spawn_instance()?;
         input
             .put_property("AffectedSnapshot", affected_snapshot.path.as_str())
@@ -227,12 +227,52 @@ impl VirtualSystemSnapshotService {
         }
     }
 
-    pub(super) async fn destroy_tree(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<()> {
-        unimplemented!()
-    }
-
-    pub(super) async fn request_state_change(&self, affected_reference_point: VirtualSystemReferencePoint, requested_state: u16) -> wmi::WMIResult<()> {
-        unimplemented!()
+    pub(super) async fn destroy_tree(&self, snapshot_settings: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
+        let destroy_snapshot_tree_method_class = self
+            .connection
+            .get_object("Msvm_VirtualSystemSnapshotService")?
+            .get_method("DestroySnapshotTree")?
+            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree method signature not found".into()))?;
+        log::debug!("DestroySnapshotTree requested for snapshot instance: {}", snapshot_settings.path);
+        let mut job_events = self
+            .connection
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let input = destroy_snapshot_tree_method_class.spawn_instance()?;
+        input
+            .put_property("SnapshotSettingData", snapshot_settings.path)
+            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
+        let result = self
+            .connection
+            .exec_method(&self.path, "DestroySnapshotTree", Some(&input))?
+            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree returned no output".into()))?
+            .into_desr::<DestroySnapshotResult>()?;
+        match result.return_value {
+            0 => Ok(JobState::Completed),
+            4096 => {
+                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree returned no job".into()))?;
+                log::debug!("Waiting for DestroySnapshotTree job: {path}");
+                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
+                log::debug!("DestroySnapshotTree job completed with state: {job_state:?}");
+                Ok(job_state)
+            },
+            return_value => {
+                let description = match return_value {
+                    32768 => "Failed",
+                    32769 => "Access denied",
+                    32770 => "Not supported",
+                    32771 => "Status is unknown",
+                    32772 => "Timeout",
+                    32773 => "Invalid parameter",
+                    32774 => "System is in use",
+                    32775 => "Invalid state for this operation",
+                    32776 => "Incorrect data type",
+                    32777 => "System is not available",
+                    32778 => "Out of memory",
+                    _ => "Unknown",
+                };
+                Err(wmi::WMIError::ConvertVariantError(format!("DestroySnapshotTree failed: {description} ({return_value})").into()))
+            }
+        }
     }
 
     pub(super) async fn convert_to_reference_point(&self, affectd_snapshot: VirtualSystemSettingData, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, resulting_reference_point: Option<VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
@@ -243,7 +283,7 @@ impl VirtualSystemSnapshotService {
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint method signature not found".into()))?;
         let mut job_events = self
             .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let reference_point_settings_xml_string = reference_point_settings.as_ref().map(|rps| rps.to_xml())
             .transpose()
             .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
@@ -316,7 +356,6 @@ mod tests {
             .expect("configured Hyper-V VM should be queryable");
         let virtual_machine = VirtualMachine::from_path(connection.clone(), computer_system.path);
         let service = VirtualSystemSnapshotService::new(connection).expect("Hyper-V snapshot service should be available");
-        log::debug!("{service:#}");
         let snapshot_setting_data = VirtualSystemSettingDataIn {
             classname: "Msvm_VirtualSystemSnapshotSettingData",
             properties: vec![
@@ -336,12 +375,66 @@ mod tests {
             .create(&virtual_machine, Some(snapshot_setting_data), SnapshotType::VendorSpecific(32768), None) // 32768 is a recovery snapshot used in backups
             .await
             .expect("snapshot should be created");
-        log::debug!("{virtual_system_setting_data:#?}");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
         let job_state = service
             .destroy(virtual_system_setting_data)
             .await
             .expect("snapshot should be destroyed");
+        assert!(matches!(job_state, JobState::Completed));
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a configured Hyper-V VM"]
+    async fn creates_and_destroys_snapshot_tree_for_configured_vm() {
+        let _ = env_logger::try_init();
+        let vm_name = std::env::var("HYPER_V_VM_NAME").expect("HYPER_V_VM_NAME must be set");
+        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let computer_system = connection
+            .raw_query::<super::computersystemout::ComputerSystemOut>("SELECT * FROM Msvm_ComputerSystem WHERE Caption = 'Virtual Machine'")
+            .expect("Hyper-V virtual machines should be queryable")
+            .into_iter()
+            .find(|machine| machine.ElementName.as_deref() == Some(vm_name.as_str()))
+            .expect("configured Hyper-V VM should be queryable");
+        let virtual_machine = VirtualMachine::from_path(connection.clone(), computer_system.path);
+        let service = VirtualSystemSnapshotService::new(connection).expect("Hyper-V snapshot service should be available");
+        let mut snapshots = Vec::with_capacity(5);
+
+        for _ in 0..5 {
+            snapshots.push(
+                service
+                    .create(
+                        &virtual_machine,
+                        Some(VirtualSystemSettingDataIn {
+                            classname: "Msvm_VirtualSystemSnapshotSettingData",
+                            properties: vec![
+                                Property {
+                                    name: "ConsistencyLevel",
+                                    cim_type: "uint8",
+                                    value: (ConsistencyLevel::Crash as u8).to_string(),
+                                },
+                                Property {
+                                    name: "IgnoreNonSnapshottableDisks",
+                                    cim_type: "boolean",
+                                    value: true.to_string(),
+                                },
+                            ],
+                        }),
+                        SnapshotType::Full, // TODO: Cannot delete SnapshotType::VendorSpecific(32768)
+                        None,
+                    )
+                    .await
+                    .expect("snapshot should be created"),
+            );
+        }
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let job_state = service.destroy_tree(snapshots.remove(3)).await.expect("snapshot tree should be destroyed from the third descendant");
+        assert!(matches!(job_state, JobState::Completed));
+
+        tokio::time::sleep(std::time::Duration::from_secs(5)).await;
+
+        let job_state = service.destroy_tree(snapshots.remove(0)).await.expect("snapshot tree should be destroyed from the root");
         assert!(matches!(job_state, JobState::Completed));
     }
 }

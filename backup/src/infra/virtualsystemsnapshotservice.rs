@@ -79,10 +79,10 @@ impl VirtualSystemSnapshotService {
             .into_iter()
             .next()
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("Virtual system snapshot service not found".into()))?;
-        Self::from_output(service, connection).map_err(|error| wmi::WMIError::ConvertVariantError(error.to_string().into()))
+        Self::from(service, connection).map_err(|error| wmi::WMIError::ConvertVariantError(error.to_string().into()))
     }
 
-    fn from_output(output: VirtualSystemSnapshotServiceOut, connection: wmi::WMIConnection) -> Result<Self, serde::de::value::Error> {
+    fn from(output: VirtualSystemSnapshotServiceOut, connection: wmi::WMIConnection) -> Result<Self, serde::de::value::Error> {
         Ok(Self {
             available_requested_states: output.AvailableRequestedStates.map(|values| values.into_iter().map(TryInto::try_into).collect()).transpose().map_err(serde::de::Error::custom)?,
             caption: output.Caption,
@@ -133,11 +133,13 @@ impl VirtualSystemSnapshotService {
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot method signature not found".into()))?;
         let mut job_events = self
             .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let snapshot_setting_data_xml_string = snapshot_settings.as_ref().map(|rps| rps.to_xml())
             .transpose()
             .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
             .unwrap_or_default();            
+        let snapshot_type_value = u16::from(snapshot_type);
+        let settings_supplied = !snapshot_setting_data_xml_string.is_empty();
         let input = create_snapshot_method_class.spawn_instance()?;
         input
             .put_property("AffectedSystem", affected_system.path.as_str())
@@ -146,15 +148,23 @@ impl VirtualSystemSnapshotService {
             .put_property("SnapshotSettings", snapshot_setting_data_xml_string)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettings: {error}").into()))?;
         input
-            .put_property("SnapshotType", u16::from(snapshot_type))
+            .put_property("SnapshotType", snapshot_type_value)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotType: {error}").into()))?;
+        let resulting_snapshot_path = resulting_snapshot
+            .as_ref()
+            .map(|snapshot| wmi::Variant::String(snapshot.path.clone()))
+            .unwrap_or(wmi::Variant::Null);
+        input
+            .put_property("ResultingSnapshot", resulting_snapshot_path)
+            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingSnapshot: {error}").into()))?;
         let result = self
             .connection
-            .exec_method(&self.path, "CreateSnapshot", Some(&input))?
+            .exec_method(&self.path, "CreateSnapshot", Some(&input))
+            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("CreateSnapshot WMI call failed: {error}").into()))?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot returned no output".into()))?
             .into_desr::<CreateSnapshotResult>()?;
         if result.return_value != 0 && result.return_value != 4096 {
-            let x =
+            let return_value_message =
                 match result.return_value {
                     1 => "Not supported",
                     2 => "Failed",
@@ -167,10 +177,11 @@ impl VirtualSystemSnapshotService {
                     32768..=65535 => "Vendor specific",
                     _ => "Unknown",
                 };
-            return Err(wmi::WMIError::ConvertVariantError(format!("CreateSnapshot failed: {x} ({})", result.return_value).into()));
+            return Err(wmi::WMIError::ConvertVariantError(format!("CreateSnapshot failed: {return_value_message} ({})", result.return_value).into()));
         }
         let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot returned no job".into()))?;
         let job = Job::wait(&self.connection, path, &mut job_events).await?;
+        log::debug!("{job:#}");
         job.get_related("Msvm_VirtualSystemSettingData").await
     }
 
@@ -196,7 +207,7 @@ impl VirtualSystemSnapshotService {
             0 => Ok(JobState::Completed),
             4096 => {
                 let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshot returned no job".into()))?;
-                Ok(Job::wait(&self.connection, path, &mut job_events).await?.state)
+                Ok(Job::wait(&self.connection, path, &mut job_events).await?.job_state)
             }
             return_value => {
                 let description = match return_value {
@@ -244,9 +255,11 @@ impl VirtualSystemSnapshotService {
         input
             .put_property("ReferencePointSettings", reference_point_settings_xml_string)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ReferencePointSettings: {error}").into()))?;
-        input
-            .put_property("ResultingReferencePoint", resulting_reference_point.as_ref().map(|rp| rp.path.as_str()).unwrap_or(""))
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingReferencePoint: {error}").into()))?;
+        if let Some(resulting_reference_point) = resulting_reference_point.as_ref() {
+            input
+                .put_property("ResultingReferencePoint", resulting_reference_point.path.as_str())
+                .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingReferencePoint: {error}").into()))?;
+        }
         let result = self
             .connection
             .exec_method(&self.path, "ConvertToReferencePoint", Some(&input))?
@@ -281,7 +294,7 @@ impl<'de> Deserialize<'de> for VirtualSystemSnapshotService {
     {
         let output = VirtualSystemSnapshotServiceOut::deserialize(deserializer)?;
         let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).map_err(serde::de::Error::custom)?;
-        Self::from_output(output, connection).map_err(serde::de::Error::custom)
+        Self::from(output, connection).map_err(serde::de::Error::custom)
     }
 }
 

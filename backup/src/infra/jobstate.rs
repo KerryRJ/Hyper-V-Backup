@@ -12,7 +12,9 @@ pub(super) enum JobState {
     Killed,
     Exception,
     Service,
-    QueryPending,
+    // QueryPending,
+    DmtfReserved(u16),
+    VendorReserved(u16),
 }
 
 impl TryFrom<u16> for JobState {
@@ -30,7 +32,9 @@ impl TryFrom<u16> for JobState {
             9 => Ok(JobState::Killed),
             10 => Ok(JobState::Exception),
             11 => Ok(JobState::Service),
-            12 => Ok(JobState::QueryPending),
+            // 12 => Ok(JobState::QueryPending),
+            11..=32767 => Ok(JobState::DmtfReserved(value)),
+            32768..=65535 => Ok(JobState::VendorReserved(value)),
             _ => Err("Unsupported job state"),
         }
     }

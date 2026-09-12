@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub(super) enum PowerManagementCapabilities {
     Unknown,
     NotSupported,

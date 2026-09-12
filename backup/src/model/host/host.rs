@@ -1,5 +1,5 @@
 use crate::model::Error;
-use crate::model::{VirtualMachine};
+use crate::infra::VirtualMachine;
 use crate::infra::VirtualMachineId;
 use crate::infra::ComputerSystemOut;
 use crate::infra::HYPER_V_NAMESPACE;
@@ -17,7 +17,7 @@ impl Host {
         let q = format!("{QUERY} AND Name = '{id}'");
         let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE)?;
         let machine = connection.async_raw_query::<ComputerSystemOut>(&q).await?.into_iter().next().ok_or(Error::VirtualMachineNotFound(id))?;
-        Ok(machine.try_into()?)
+        Ok(VirtualMachine::from(machine, connection)?)
     }
 
     pub async fn get_virtual_machines(&self) -> Result<Vec<VirtualMachine>, Error> {
@@ -26,7 +26,7 @@ impl Host {
             .async_raw_query::<ComputerSystemOut>(QUERY)
             .await?
             .into_iter()
-            .map(VirtualMachine::try_from)
+            .map(|machine| VirtualMachine::from(machine, connection.clone()))
             .collect::<Result<Vec<_>, _>>()
             .map_err(Error::from)
     }
@@ -52,8 +52,8 @@ mod tests {
     async fn returns_virtual_machine_by_id() {
         let vm_id = VirtualMachineId::parse_str("B12E125D-5EDF-40DA-94A0-89BA9836221D").unwrap();
         let vm = Host::new().get_virtual_machine(vm_id).await.expect("expected Hyper-V VM to be found");
-        assert_eq!(vm.id(), vm_id);
-        assert_eq!(vm.name(), Some("vrt001"));
+        assert_eq!(vm.name, vm_id);
+        assert_eq!(vm.element_name, "vrt001");
     }
 
     #[tokio::test]

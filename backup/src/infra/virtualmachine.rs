@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use super::*;
 
-#[derive(Debug)]
+#[derive(Clone, Debug)]
 pub struct VirtualMachine {
     available_requested_states: Vec<RequestedState>,
     caption: String,
@@ -12,7 +12,7 @@ pub struct VirtualMachine {
     dedicated: Vec<Dedicated>,  // Always set to NotDedicated = 0
     description: String,    // Will be "Microsoft Virtual Computer System" or "Microsoft Hosting Computer System"
     detailed_status: Option<DetailedStatus>, // Complements PrimaryStatus
-    element_name: String,
+    pub(crate) element_name: String,
     enabled_default: EnabledDefault, // Default Enabled = 2 for a physical computer
     enabled_state: EnabledState,    // 2 is only for physical computer. There is no default for a VM
     enhanced_session_mode_state: EnhancedSessionModeState,
@@ -21,7 +21,7 @@ pub struct VirtualMachine {
     install_date: chrono::DateTime<chrono::Utc>,
     instance_id: Option<String>,
     last_successful_backup_time: Option<chrono::DateTime<chrono::Utc>>,
-    name: VirtualMachineId,
+    pub(crate) name: VirtualMachineId,
     name_format: Option<String>,    // Always set to null
     number_of_numa_nodes: u16,  // Set to null for the management OS
     on_time: Duration,  // From OnTimeInMilliseconds

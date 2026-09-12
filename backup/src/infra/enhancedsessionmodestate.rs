@@ -1,6 +1,6 @@
 use serde::Deserialize;
 
-#[derive(Debug, Clone)]
+#[derive(Clone, Debug)]
 pub(crate) enum EnhancedSessionModeState{
     AllowedAndAvailable,
     NotAllowed,

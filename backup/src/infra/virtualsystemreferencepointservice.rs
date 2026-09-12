@@ -272,8 +272,8 @@ mod tests {
             classname: "Msvm_VirtualSystemReferencePointSettingData",
             properties: vec![
                 Property {
-                    name: "ConsistencyLevel",
-                    cim_type: "uint8",
+                    name: "ConsistencyLevel".into(),
+                    cim_type: "uint8".into(),
                     value: (ConsistencyLevel::Crash as u8).to_string(),
                 },
             ],

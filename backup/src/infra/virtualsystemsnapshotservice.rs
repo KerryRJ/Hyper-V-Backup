@@ -451,13 +451,13 @@ mod tests {
             classname: "Msvm_VirtualSystemSnapshotSettingData",
             properties: vec![
                 Property {
-                    name: "ConsistencyLevel",
-                    cim_type: "uint8",
+                    name: "ConsistencyLevel".into(),
+                    cim_type: "uint8".into(),
                     value: (ConsistencyLevel::Crash as u8).to_string(),
                 },
                 Property {
-                    name: "IgnoreNonSnapshottableDisks",
-                    cim_type: "boolean",
+                    name: "IgnoreNonSnapshottableDisks".into(),
+                    cim_type: "boolean".into(),
                     value: true.to_string(),
                 },
             ],
@@ -499,13 +499,13 @@ mod tests {
                             classname: "Msvm_VirtualSystemSnapshotSettingData",
                             properties: vec![
                                 Property {
-                                    name: "ConsistencyLevel",
-                                    cim_type: "uint8",
+                                    name: "ConsistencyLevel".into(),
+                                    cim_type: "uint8".into(),
                                     value: (ConsistencyLevel::Crash as u8).to_string(),
                                 },
                                 Property {
-                                    name: "IgnoreNonSnapshottableDisks",
-                                    cim_type: "boolean",
+                                    name: "IgnoreNonSnapshottableDisks".into(),
+                                    cim_type: "boolean".into(),
                                     value: true.to_string(),
                                 },
                             ],

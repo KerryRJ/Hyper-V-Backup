@@ -17,14 +17,14 @@ impl TryFrom<u16> for DetailedStatus {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(DetailedStatus::NotAvailable),
-            1 => Ok(DetailedStatus::NoAdditionalInformation),
-            2 => Ok(DetailedStatus::Stressed),
-            3 => Ok(DetailedStatus::PredictiveFailure),
-            4 => Ok(DetailedStatus::NonRecoverableError),
-            5 => Ok(DetailedStatus::SupportingEntityInError),
-            6..=32767 => Ok(DetailedStatus::DMTFReserved(value)),
-            32768..=65535 => Ok(DetailedStatus::VendorReserved(value)),
+            0 => Ok(Self::NotAvailable),
+            1 => Ok(Self::NoAdditionalInformation),
+            2 => Ok(Self::Stressed),
+            3 => Ok(Self::PredictiveFailure),
+            4 => Ok(Self::NonRecoverableError),
+            5 => Ok(Self::SupportingEntityInError),
+            6..=32767 => Ok(Self::DMTFReserved(value)),
+            32768..=65535 => Ok(Self::VendorReserved(value)),
             _ => Err("Unsupported detailed status"),
         }
     }

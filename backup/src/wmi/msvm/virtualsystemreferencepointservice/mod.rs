@@ -25,7 +25,8 @@ use self::virtualsystemmanagementserviceclass::VirtualSystemManagementServiceCla
 use self::virtualsystemreferencepointserviceclass::VirtualSystemReferencePointServiceClass;
 use self::virtualsystemreferencepointserviceinstance::VirtualSystemReferencePointServiceInstance;
 use self::virtualsystemsettingdata::VirtualSystemSettingData;
-use crate::model::{ReferencePoint, ReferencePointId, VirtualMachine};
+use crate::infra::ReferencePointId;
+use crate::model::{ReferencePoint, VirtualMachine};
 use crate::service::referencepointservice::{ConsistencyLevel, ReferencePointSettingData};
 use crate::wmi::HYPER_V_NAMESPACE;
 use futures::StreamExt;

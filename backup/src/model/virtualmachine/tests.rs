@@ -1,8 +1,10 @@
 use std::time::Duration;
 
+use uuid::Uuid;
+
 use crate::model::Error;
-use crate::model::VmId;
-use crate::infra::computersystemout::ComputerSystemOut;
+use crate::infra::VirtualMachineId;
+use crate::infra::ComputerSystemOut;
 
 use super::{
     VirtualMachine,
@@ -30,20 +32,20 @@ fn converts_minimal_computer_system() {
 
     let machine = VirtualMachine::try_from(computer_system).unwrap();
 
-    assert_eq!(machine.id(), VmId::parse_str("11111111-1111-1111-1111-111111111111").unwrap());
-    assert_eq!(machine.caption(), None);
-    assert_eq!(machine.on_time(), None);
+    assert_eq!(machine.id(), VirtualMachineId::parse_str("11111111-1111-1111-1111-111111111111").unwrap());
+    assert_eq!(machine.caption(), Some(""));
+    assert_eq!(machine.on_time(), Some(Duration::ZERO));
 }
 
 #[test]
 fn converts_basic_computer_system_fields() {
     let mut computer_system = ComputerSystemOut::default();
     computer_system.Name = "11111111-1111-1111-1111-111111111111".into();
-    computer_system.Caption = Some("Virtual Machine".into());
-    computer_system.ElementName = Some("vm01".into());
-    computer_system.OnTimeInMilliseconds = Some(2_500);
-    computer_system.EnabledState = Some(2);
-    computer_system.HealthState = Some(5);
+    computer_system.Caption = "Virtual Machine".into();
+    computer_system.ElementName = "vm01".into();
+    computer_system.OnTimeInMilliseconds = 2_500;
+    computer_system.EnabledState = 2;
+    computer_system.HealthState = 5;
 
     let machine = VirtualMachine::try_from(computer_system).unwrap();
 
@@ -65,7 +67,7 @@ fn rejects_invalid_virtual_machine_id() {
 #[test]
 fn rejects_invalid_optional_field() {
     let mut computer_system = ComputerSystemOut::default();
-    computer_system.Name = uuid::Uuid::nil().to_string();
+    computer_system.Name = Uuid::nil().to_string();
     computer_system.CommunicationStatus = Some(99);
 
     assert!(matches!(VirtualMachine::try_from(computer_system), Err(Error::InvalidField("CommunicationStatus"))));

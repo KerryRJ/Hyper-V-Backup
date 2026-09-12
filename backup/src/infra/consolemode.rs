@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Debug, Clone)]
 pub(crate) enum ConsoleMode {
     Default, // 0
@@ -20,13 +22,11 @@ impl TryFrom<u16> for ConsoleMode {
     }
 }
 
-impl From<&ConsoleMode> for u16 {
-    fn from(value: &ConsoleMode) -> Self {
-        match value {
-            ConsoleMode::Default => 0,
-            ConsoleMode::Com1 => 1,
-            ConsoleMode::Com2 => 2,
-            ConsoleMode::None => 3,
-        }
+impl<'de> Deserialize<'de> for ConsoleMode {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u16::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

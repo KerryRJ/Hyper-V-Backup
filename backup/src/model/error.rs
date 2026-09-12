@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::model::VmId;
+use crate::infra::VirtualMachineId;
 
 #[derive(Debug, Error)]
 pub enum Error {
@@ -9,7 +9,7 @@ pub enum Error {
     #[error("Invalid virtual machine uuid: {0}")]
     Uuid(#[from] uuid::Error),
     #[error("Virtual machine not found: {0}")]
-    VirtualMachineNotFound(VmId),
+    VirtualMachineNotFound(VirtualMachineId),
     #[error("Invalid backup request: {0}")]
     InvalidBackupRequest(&'static str),
     #[error("Invalid backup schedule: {0}")]

@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum RunMonth {
     January,
@@ -33,5 +35,14 @@ impl TryFrom<u8> for RunMonth {
             11 => Ok(Self::December),
             _ => Err("Run month must be between January (0) and December (11)"),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for RunMonth {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u8::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

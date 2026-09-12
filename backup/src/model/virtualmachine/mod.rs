@@ -16,7 +16,5 @@ pub mod resetcapability;
 mod tests;
 pub mod transitioningtostate;
 pub mod virtualmachine;
-pub mod vmid;
 
 pub use virtualmachine::VirtualMachine;
-pub use vmid::VmId;

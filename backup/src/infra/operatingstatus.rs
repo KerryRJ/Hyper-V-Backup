@@ -15,12 +15,12 @@ impl TryFrom<u16> for OperatingStatus {
 
     fn try_from(value: u16) -> Result<Self, <Self as TryFrom<u16>>::Error> {
         match value {
-            0 => Ok(OperatingStatus::Unknown),
-            1 => Ok(OperatingStatus::Ok),
-            2 => Ok(OperatingStatus::Degraded),
-            3 => Ok(OperatingStatus::Error),
-            17..=32767 => Ok(OperatingStatus::DMTFReserved(value)),
-            32768..=65535 => Ok(OperatingStatus::VendorReserved(value)),
+            0 => Ok(Self::Unknown),
+            1 => Ok(Self::Ok),
+            2 => Ok(Self::Degraded),
+            3 => Ok(Self::Error),
+            17..=32767 => Ok(Self::DMTFReserved(value)),
+            32768..=65535 => Ok(Self::VendorReserved(value)),
             _ => Err("Unsupported operating status"),
         }
     }

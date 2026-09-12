@@ -7,12 +7,11 @@ mod backupstatus;
 mod referencepointbackupoptions;
 mod statusstore;
 
-pub use super::referencepointservice::ReferencePointService;
 pub use crate::model::{BackupSchedule, ScheduleId};
 pub use backupfailure::BackupFailure;
 pub use backupid::BackupId;
 pub use backuprequest::BackupRequest;
-pub use backupservice::BackupService;
+// pub use backupservice::BackupService;
 pub use backupstate::BackupState;
 pub use backupstatus::BackupStatus;
 pub use referencepointbackupoptions::ReferencePointBackupOptions;

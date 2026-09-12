@@ -422,7 +422,7 @@ impl<'de> Deserialize<'de> for VirtualSystemSnapshotService {
         D: Deserializer<'de>,
     {
         let output = VirtualSystemSnapshotServiceOut::deserialize(deserializer)?;
-        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).map_err(serde::de::Error::custom)?;
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).map_err(serde::de::Error::custom)?;
         Self::from(output, connection).map_err(serde::de::Error::custom)
     }
 }
@@ -436,14 +436,16 @@ mod tests {
     async fn creates_snapshot_for_configured_vm() {
         let _ = env_logger::try_init();
         let vm_name = std::env::var("HYPER_V_VM_NAME").expect("HYPER_V_VM_NAME must be set");
-        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
         let computer_system = connection
-            .raw_query::<super::computersystemout::ComputerSystemOut>("SELECT * FROM Msvm_ComputerSystem WHERE Caption = 'Virtual Machine'")
+            .raw_query::<super::ComputerSystemOut>("SELECT * FROM Msvm_ComputerSystem WHERE Caption = 'Virtual Machine'")
             .expect("Hyper-V virtual machines should be queryable")
             .into_iter()
-            .find(|machine| machine.ElementName.as_deref() == Some(vm_name.as_str()))
+            .find(|machine| machine.ElementName == vm_name)
             .expect("configured Hyper-V VM should be queryable");
-        let virtual_machine = VirtualMachine::from_path(connection.clone(), computer_system.path);
+        log::debug!("{computer_system:#}");
+        let virtual_machine = VirtualMachine::from(computer_system, connection.clone()).expect("virtual machine WMI data should be valid");
+        log::debug!("{virtual_machine:#}");
         let service = VirtualSystemSnapshotService::new(connection).expect("Hyper-V snapshot service should be available");
         let snapshot_setting_data = VirtualSystemSettingDataIn {
             classname: "Msvm_VirtualSystemSnapshotSettingData",
@@ -477,14 +479,14 @@ mod tests {
     async fn creates_and_destroys_snapshot_tree_for_configured_vm() {
         let _ = env_logger::try_init();
         let vm_name = std::env::var("HYPER_V_VM_NAME").expect("HYPER_V_VM_NAME must be set");
-        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
         let computer_system = connection
             .raw_query::<super::computersystemout::ComputerSystemOut>("SELECT * FROM Msvm_ComputerSystem WHERE Caption = 'Virtual Machine'")
             .expect("Hyper-V virtual machines should be queryable")
             .into_iter()
-            .find(|machine| machine.ElementName.as_deref() == Some(vm_name.as_str()))
+            .find(|machine| machine.ElementName == vm_name)
             .expect("configured Hyper-V VM should be queryable");
-        let virtual_machine = VirtualMachine::from_path(connection.clone(), computer_system.path);
+        let virtual_machine = VirtualMachine::from(computer_system, connection.clone()).expect("virtual machine WMI data should be valid");
         let service = VirtualSystemSnapshotService::new(connection).expect("Hyper-V snapshot service should be available");
         let mut snapshots = Vec::with_capacity(5);
 

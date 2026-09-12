@@ -11,8 +11,8 @@ impl TryFrom<u16> for HealthState {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            5 => Ok(HealthState::Ok),
-            0..=4 | 6..=30 => Ok(HealthState::Other(value)),
+            5 => Ok(Self::Ok),
+            0..=4 | 6..=30 => Ok(Self::Other(value)),
             _ => Err("Unsupported health state"),
         }
     }

@@ -11,8 +11,8 @@ impl TryFrom<u16> for LocalOrUtcTime {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            1 => Ok(LocalOrUtcTime::Local),
-            2 => Ok(LocalOrUtcTime::Utc),
+            1 => Ok(Self::Local),
+            2 => Ok(Self::Utc),
             _ => Err("Unsupported local or UTC time"),
         }
     }

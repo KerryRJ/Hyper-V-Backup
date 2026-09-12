@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, Utc};
 
-use super::VmId;
+use crate::infra::VirtualMachineId;
 
 mod scheduleid;
 
@@ -11,7 +11,7 @@ pub use scheduleid::ScheduleId;
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackupSchedule {
     pub id: ScheduleId,
-    pub virtual_machine_id: VmId,
+    pub virtual_machine_id: VirtualMachineId,
     pub destination: PathBuf,
     pub next_run_at: DateTime<Utc>,
     pub repeat_every: Option<Duration>,
@@ -19,7 +19,7 @@ pub struct BackupSchedule {
 }
 
 impl BackupSchedule {
-    pub fn new(virtual_machine_id: VmId, destination: PathBuf, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Self {
+    pub fn new(virtual_machine_id: VirtualMachineId, destination: PathBuf, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Self {
         Self {
             id: ScheduleId::new_v4(),
             virtual_machine_id,

@@ -16,13 +16,13 @@ impl TryFrom<u16> for CommunicationStatus {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(CommunicationStatus::Unknown),
-            1 => Ok(CommunicationStatus::NotAvailable),
-            2 => Ok(CommunicationStatus::CommunicationOk),
-            3 => Ok(CommunicationStatus::LostCommunication),
-            4 => Ok(CommunicationStatus::NoContact),
-            5..=32767 => Ok(CommunicationStatus::DMTFReserved(value)),
-            32768..=65535 => Ok(CommunicationStatus::VendorReserved(value)),
+            0 => Ok(Self::Unknown),
+            1 => Ok(Self::NotAvailable),
+            2 => Ok(Self::CommunicationOk),
+            3 => Ok(Self::LostCommunication),
+            4 => Ok(Self::NoContact),
+            5..=32767 => Ok(Self::DMTFReserved(value)),
+            32768..=65535 => Ok(Self::VendorReserved(value)),
             _ => Err("Unsupported communication status"),
         }
     }

@@ -22,19 +22,19 @@ impl TryFrom<u16> for TransitioningState {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            0 => Ok(TransitioningState::Unknown),
-            2 => Ok(TransitioningState::Enabled),
-            3 => Ok(TransitioningState::Disabled),
-            4 => Ok(TransitioningState::ShuttingDown),
-            5 => Ok(TransitioningState::NoChange),
-            6 => Ok(TransitioningState::Offline),
-            7 => Ok(TransitioningState::Test),
-            8 => Ok(TransitioningState::Defer),
-            9 => Ok(TransitioningState::Quiesce),
-            10 => Ok(TransitioningState::Reboot),
-            11 => Ok(TransitioningState::Reset),
-            12 => Ok(TransitioningState::NotApplicable),
-            13..32767 => Ok(TransitioningState::DMTFReserved(value)),
+            0 => Ok(Self::Unknown),
+            2 => Ok(Self::Enabled),
+            3 => Ok(Self::Disabled),
+            4 => Ok(Self::ShuttingDown),
+            5 => Ok(Self::NoChange),
+            6 => Ok(Self::Offline),
+            7 => Ok(Self::Test),
+            8 => Ok(Self::Defer),
+            9 => Ok(Self::Quiesce),
+            10 => Ok(Self::Reboot),
+            11 => Ok(Self::Reset),
+            12 => Ok(Self::NotApplicable),
+            13..32767 => Ok(Self::DMTFReserved(value)),
             _ => Err("Unsupported transitioning state"),
         }
     }

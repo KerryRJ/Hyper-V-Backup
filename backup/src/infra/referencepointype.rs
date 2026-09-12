@@ -1,5 +1,7 @@
-#[derive(Clone, Debug)]
-pub(super) enum ReferencePointType {
+use serde::Deserialize;
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReferencePointType {
     Log, // 1
     Rct, //  2
 }
@@ -13,6 +15,15 @@ impl TryFrom<u16> for ReferencePointType {
             2 => Ok(Self::Rct),
             _ => Err("Reference point type must be Log (1) or Rct (2)"),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for ReferencePointType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u16::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 

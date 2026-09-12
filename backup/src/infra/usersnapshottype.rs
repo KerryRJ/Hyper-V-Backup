@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Debug, Clone)]
 pub(crate) enum UserSnapshotType {
     Disable, // 2
@@ -17,6 +19,15 @@ impl TryFrom<u16> for UserSnapshotType {
             5 => Ok(Self::Test),
             _ => Err("User snapshot type must be Disable (2), ProductionFallbackToTest (3), ProductionNoFallback (4) or Test (5)"),
         }
+    }
+}
+
+impl<'de> Deserialize<'de> for UserSnapshotType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u16::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }
 

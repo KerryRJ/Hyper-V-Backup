@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Debug, Clone)]
 pub(crate) enum DebugPortEnabledType {
     Off, // 0
@@ -18,12 +20,11 @@ impl TryFrom<u16> for DebugPortEnabledType {
     }
 }
 
-impl From<&DebugPortEnabledType> for u16 {
-    fn from(value: &DebugPortEnabledType) -> Self {
-        match value {
-            DebugPortEnabledType::Off => 0,
-            DebugPortEnabledType::On => 1,
-            DebugPortEnabledType::OnAutoAssigned => 2,
-        }
+impl<'de> Deserialize<'de> for DebugPortEnabledType {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u16::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

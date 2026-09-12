@@ -161,7 +161,8 @@ impl<'de> Deserialize<'de> for VirtualSystemSettingData {
         if virtual_system_identifier.is_nil() {
             return Err(serde::de::Error::custom("VirtualSystemIdentifier cannot be nil"));
         }
-        let virtual_system_identifier = super::VirtualMachineId::new(virtual_system_identifier);
+        let virtual_system_identifier = super::VirtualMachineId::new(virtual_system_identifier)
+            .expect("VirtualSystemIdentifier was already checked for nil");
 
         Ok(Self {
             path: output.__Path,
@@ -181,7 +182,7 @@ impl<'de> Deserialize<'de> for VirtualSystemSettingData {
             bios_guid: output.BIOSGUID,
             bios_num_lock: output.BIOSNumLock,
             bios_serial_number: output.BIOSSerialNumber,
-            boot_order: output.BootOrder.into_iter().map(super::DeviceType::from).collect(),
+            boot_order: output.BootOrder.into_iter().map(|value| super::DeviceType::try_from(value).map_err(serde::de::Error::custom)).collect::<Result<_, _>>()?,
             boot_source_order: output.BootSourceOrder,
             caption: output.Caption,
             chassis_asset_tag: output.ChassisAssetTag,

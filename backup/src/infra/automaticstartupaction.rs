@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Debug, Clone)]
 pub(crate) enum AutomaticStartupAction {
     None,   // 2
@@ -20,13 +22,11 @@ impl TryFrom<u16> for AutomaticStartupAction {
     }
 }
 
-impl From<&AutomaticStartupAction> for u16 {
-    fn from(value: &AutomaticStartupAction) -> Self {
-        match value {
-            AutomaticStartupAction::None => 2,
-            AutomaticStartupAction::RestartIfPreviouslyActive => 3,
-            AutomaticStartupAction::AlwaysStartup => 4,
-            AutomaticStartupAction::DMTF(value) => *value,
-        }
+impl<'de> Deserialize<'de> for AutomaticStartupAction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u16::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

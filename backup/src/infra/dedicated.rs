@@ -1,24 +1,22 @@
 use serde::Deserialize;
 
-#[derive(Debug, Clone)]
-pub(crate) enum NetworkBootProtocol {
-    IPv4,   // 4096
-    IPv6,   // 4097
+#[derive(Debug)]
+pub(crate) enum Dedicated { 
+    NotDedicated,
 }
 
-impl TryFrom<u16> for NetworkBootProtocol {
+impl TryFrom<u16> for Dedicated {
     type Error = &'static str;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            4096 => Ok(Self::IPv4),
-            4097 => Ok(Self::IPv6),
-            _ => Err("Network boot protocol must be IPv4 (4096) or IPv6 (4097)"),
+            0 => Ok(Self::NotDedicated),
+            _ => Err("Unsupported dedicated state"),
         }
     }
 }
 
-impl<'de> Deserialize<'de> for NetworkBootProtocol {
+impl<'de> Deserialize<'de> for Dedicated {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Serialize)]
+#[derive(Debug, Serialize)]
 pub(super) struct Property {
     #[serde(rename = "@NAME")]
     pub(super) name: &'static str,

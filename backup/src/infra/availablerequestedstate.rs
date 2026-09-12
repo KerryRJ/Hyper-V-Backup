@@ -4,7 +4,7 @@ use serde::Deserialize;
 pub(crate) enum AvailableRequestedState {
     Enabled,
     Disabled,
-    ShuttingDown,
+    ShutDown,
     Offline,
     Test,
     Defer,
@@ -19,17 +19,17 @@ impl TryFrom<u16> for AvailableRequestedState {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            2 => Ok(AvailableRequestedState::Enabled),
-            3 => Ok(AvailableRequestedState::Disabled),
-            4 => Ok(AvailableRequestedState::ShuttingDown),
-            6 => Ok(AvailableRequestedState::Offline),
-            7 => Ok(AvailableRequestedState::Test),
-            8 => Ok(AvailableRequestedState::Defer),
-            9 => Ok(AvailableRequestedState::Quiesce),
-            10 => Ok(AvailableRequestedState::Reboot),
-            11 => Ok(AvailableRequestedState::Reset),
-            12..=32767 => Ok(AvailableRequestedState::DMTFReserved(value)),
-            _ => Err("Unsupported requested state"),
+            2 => Ok(Self::Enabled),
+            3 => Ok(Self::Disabled),
+            4 => Ok(Self::ShutDown),
+            6 => Ok(Self::Offline),
+            7 => Ok(Self::Test),
+            8 => Ok(Self::Defer),
+            9 => Ok(Self::Quiesce),
+            10 => Ok(Self::Reboot),
+            11 => Ok(Self::Reset),
+            12..=32767 => Ok(Self::DMTFReserved(value)),
+            _ => Err("Unsupported availablerequested state"),
         }
     }
 }

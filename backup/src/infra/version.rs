@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(crate) struct Version {
     major: u16,
@@ -20,5 +22,14 @@ impl TryFrom<String> for Version {
             major: major.parse().map_err(|_| "Version major must be a number")?,
             minor: minor.parse().map_err(|_| "Version minor must be a number")?,
         })
+    }
+}
+
+impl<'de> Deserialize<'de> for Version {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(String::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

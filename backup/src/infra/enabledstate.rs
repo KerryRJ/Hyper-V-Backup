@@ -2,7 +2,17 @@ use serde::Deserialize;
 
 #[derive(Debug)]
 pub(crate) enum EnabledState { 
+    Unknown,
+    Other,
     Enabled,
+    Disabled,
+    ShuttingDown,
+    NotApplicable,
+    EnabledButOffline,
+    InTest,
+    Deferred,
+    Quiesced,
+    Starting,
 }
 
 impl TryFrom<u16> for EnabledState {
@@ -10,7 +20,17 @@ impl TryFrom<u16> for EnabledState {
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
-            2 => Ok(EnabledState::Enabled),
+            0 => Ok(Self::Unknown),
+            1 => Ok(Self::Other),
+            2 => Ok(Self::Enabled),
+            3 => Ok(Self::Disabled),
+            4 => Ok(Self::ShuttingDown),
+            5 => Ok(Self::NotApplicable),
+            6 => Ok(Self::EnabledButOffline),
+            7 => Ok(Self::InTest),
+            8 => Ok(Self::Deferred),
+            9 => Ok(Self::Quiesced),
+            10 => Ok(Self::Starting),
             _ => Err("Unsupported enabled state"),
         }
     }

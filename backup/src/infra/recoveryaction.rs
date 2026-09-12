@@ -1,3 +1,5 @@
+use serde::Deserialize;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 pub(crate) enum RecoveryAction {
     Unknown,
@@ -24,15 +26,11 @@ impl TryFrom<u16> for RecoveryAction {
     }
 }
 
-impl From<RecoveryAction> for u16 {
-    fn from(value: RecoveryAction) -> Self {
-        match value {
-            RecoveryAction::Unknown => 0,
-            RecoveryAction::Other => 1,
-            RecoveryAction::DoNotContinue => 2,
-            RecoveryAction::ContinueWithNextJob => 3,
-            RecoveryAction::RerunJob => 4,
-            RecoveryAction::RunRecoveryJob => 5,
-        }
+impl<'de> Deserialize<'de> for RecoveryAction {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        Self::try_from(u16::deserialize(deserializer)?).map_err(serde::de::Error::custom)
     }
 }

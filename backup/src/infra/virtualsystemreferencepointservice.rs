@@ -261,10 +261,10 @@ mod tests {
             .raw_query::<super::computersystemout::ComputerSystemOut>("SELECT * FROM Msvm_ComputerSystem WHERE Caption = 'Virtual Machine'")
             .expect("Hyper-V virtual machines should be queryable")
             .into_iter()
-            .find(|machine| machine.ElementName.as_deref() == Some(vm_name.as_str()))
+            .find(|machine| machine.ElementName == vm_name)
             .expect("configured Hyper-V VM should be queryable");
         log::info!("Resolved configured Hyper-V VM: {}", computer_system.path);
-        VirtualMachine::from_path(connection.clone(), computer_system.path)
+        VirtualMachine::from(computer_system, connection.clone()).expect("virtual machine WMI data should be valid")
     }
 
     fn reference_point_settings() -> VirtualSystemReferencePointSettingDataIn {
@@ -297,8 +297,8 @@ mod tests {
     async fn creates_reference_point_for_configured_vm() {  // TODO: This always returns Not support
         let _ = env_logger::try_init();
         log::info!("Starting creates_reference_point_for_configured_vm");
-        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
-        log::info!("Connected to Hyper-V WMI namespace: {}", crate::wmi::HYPER_V_NAMESPACE);
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        log::info!("Connected to Hyper-V WMI namespace: {}", HYPER_V_NAMESPACE);
         let service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
         log::info!("Resolved Hyper-V virtual system reference-point service");
         let reference_point = create_reference_point(&service, &connection).await;
@@ -314,7 +314,7 @@ mod tests {
     async fn destroys_reference_point_for_configured_vm() {
         let _ = env_logger::try_init();
         log::info!("Starting destroys_reference_point_for_configured_vm");
-        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
         let service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
         let reference_point = create_reference_point(&service, &connection).await;
         log::info!("Destroying reference point: {}", reference_point.path.as_str());
@@ -328,7 +328,7 @@ mod tests {
     async fn removes_associated_data_for_configured_vm() {
         let _ = env_logger::try_init();
         log::info!("Starting removes_associated_data_for_configured_vm");
-        let connection = wmi::WMIConnection::with_namespace_path(crate::wmi::HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
         let service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
         let reference_point = create_reference_point(&service, &connection).await;
         log::info!("Removing associated data from reference point: {}", reference_point.path.as_str());

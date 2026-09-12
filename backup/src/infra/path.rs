@@ -2,7 +2,7 @@
 pub struct Path(String);
 
 impl Path {
-    pub(super) fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }

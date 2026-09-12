@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use chrono::{DateTime, Duration, Utc};
 
-use crate::infra::VirtualMachineId;
+use crate::model::VirtualMachineId;
 
 mod scheduleid;
 

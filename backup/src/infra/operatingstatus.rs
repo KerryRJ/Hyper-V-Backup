@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(super) enum OperatingStatus {
+pub(crate) enum OperatingStatus {
     Unknown,
     Ok,
     Degraded,

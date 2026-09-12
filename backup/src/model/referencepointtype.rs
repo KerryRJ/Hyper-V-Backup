@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ReferencePointType {
-    Log, // 1
-    Rct, //  2
+    Log,
+    Rct,
 }
 
 impl TryFrom<u16> for ReferencePointType {

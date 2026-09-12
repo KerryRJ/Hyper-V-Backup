@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub enum ConsistencyLevel {
-    Application, // 1
-    Crash,       //  2
+    Application,
+    Crash,
 }
 
 impl TryFrom<u16> for ConsistencyLevel {

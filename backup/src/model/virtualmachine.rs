@@ -1,6 +1,7 @@
 use std::time::Duration;
 
-use super::*;
+use crate::infra::*;
+use crate::model::VirtualMachineId;
 
 #[derive(Clone, Debug)]
 pub struct VirtualMachine {
@@ -30,7 +31,7 @@ pub struct VirtualMachine {
     other_dedicated_descriptions: Vec<String>,  // Always set to null
     other_enabled_state: Option<String>,    // Must be null when EnabledState is not Other. Always set to null
     other_identifying_info: Vec<String>,    // Always set to null
-    pub(super) path: Path,
+    pub(crate) path: Path,
     power_management_capabilities: Vec<PowerManagementCapabilities>, // Not used
     primary_owner_contact: Option<String>,  // Always set to null
     primary_owner_name: Option<String>, // Always set to null

@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 
-use crate::infra::VirtualMachineId;
+use crate::model::VirtualMachineId;
 
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct BackupRequest {

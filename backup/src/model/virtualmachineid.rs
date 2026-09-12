@@ -12,8 +12,8 @@ impl VirtualMachineId {
         (!uuid.is_nil()).then_some(Self(uuid))
     }
 
-    pub fn parse_str(input: &str) -> Result<Self, VitualMachineIdError> {
-        Self::new(Uuid::parse_str(input)?).ok_or(VitualMachineIdError::Nil)
+    pub fn parse_str(input: &str) -> Result<Self, VirtualMachineIdError> {
+        Self::new(Uuid::parse_str(input)?).ok_or(VirtualMachineIdError::Nil)
     }
 }
 
@@ -47,17 +47,17 @@ impl<'de> Deserialize<'de> for VirtualMachineId {
         D: serde::Deserializer<'de>,
     {
         let uuid = Uuid::deserialize(deserializer)?;
-        Self::new(uuid).ok_or_else(|| serde::de::Error::custom(VitualMachineIdError::Nil))
+        Self::new(uuid).ok_or_else(|| serde::de::Error::custom(VirtualMachineIdError::Nil))
     }
 }
 
 #[derive(Debug)]
-pub enum VitualMachineIdError {
+pub enum VirtualMachineIdError {
     InvalidUuid(uuid::Error),
     Nil,
 }
 
-impl Display for VitualMachineIdError {
+impl Display for VirtualMachineIdError {
     fn fmt(&self, formatter: &mut Formatter<'_>) -> std::fmt::Result {
         match self {
             Self::InvalidUuid(error) => error.fmt(formatter),
@@ -66,9 +66,9 @@ impl Display for VitualMachineIdError {
     }
 }
 
-impl std::error::Error for VitualMachineIdError {}
+impl std::error::Error for VirtualMachineIdError {}
 
-impl From<uuid::Error> for VitualMachineIdError {
+impl From<uuid::Error> for VirtualMachineIdError {
     fn from(error: uuid::Error) -> Self {
         Self::InvalidUuid(error)
     }

@@ -1,6 +1,6 @@
 use thiserror::Error;
 
-use crate::infra::VirtualMachineId;
+use crate::model::VirtualMachineId;
 
 #[derive(Debug, Error)]
 pub enum Error {

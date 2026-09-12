@@ -1,8 +1,5 @@
-use crate::model::Error;
-use crate::infra::VirtualMachine;
-use crate::infra::VirtualMachineId;
-use crate::infra::ComputerSystemOut;
-use crate::infra::HYPER_V_NAMESPACE;
+use crate::infra::{ComputerSystemOut, HYPER_V_NAMESPACE};
+use crate::model::{Error, VirtualMachine, VirtualMachineId};
 
 pub struct Host;
 
@@ -35,7 +32,6 @@ impl Host {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::infra::VirtualMachineId;
 
     #[tokio::test]
     async fn returns_not_found_for_unknown_vm() {

@@ -4,7 +4,7 @@ use serde::{Deserialize, Deserializer};
 use uuid::Uuid;
 
 #[derive(Clone)]
-pub(super) struct VirtualSystemReferencePoint {
+pub(crate) struct VirtualSystemReferencePoint {
     pub consistency_level: super::ConsistencyLevel, // rw
     pub has_associated_data: bool,                  // rw
     pub instance_id: super::InstanceId,             // r

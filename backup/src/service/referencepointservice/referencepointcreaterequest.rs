@@ -1,5 +1,5 @@
-use crate::infra::{ReferencePointId, ReferencePointType, VirtualSystemReferencePointSettingDataIn};
-use crate::infra::VirtualMachine;
+use crate::infra::VirtualSystemReferencePointSettingDataIn;
+use crate::model::{ReferencePointId, ReferencePointType, VirtualMachine};
 
 #[derive(Clone, Debug)]
 pub struct ReferencePointCreateRequest {

@@ -140,7 +140,7 @@ impl fmt::Debug for VirtualSystemSettingData {
 }
 
 impl VirtualSystemSettingData {
-    pub(super) fn is_snapshot(&self) -> bool {
+    pub(crate) fn is_snapshot(&self) -> bool {
         self.description == "Snapshot settings for the virtual machine"
     }
 

@@ -1,6 +1,6 @@
 use serde::Serialize;
 
-#[derive(Debug, Serialize)]
+#[derive(Clone, Debug, Serialize)]
 #[serde(rename = "INSTANCE")]
 pub struct VirtualSystemReferencePointSettingDataIn {
     #[serde(rename = "@CLASSNAME")]

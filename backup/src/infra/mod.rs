@@ -97,7 +97,7 @@ use lowmmiogapsize::LowMmioGapSize;
 use networkbootprotocol::NetworkBootProtocol;
 use operatingstatus::OperatingStatus;
 use operationalstatus::OperationalStatus;
-use path::Path;
+pub use path::Path;
 use percent::Percent;
 use powermanagementcapabilities::PowerManagementCapabilities;
 use primarystatus::PrimaryStatus;

@@ -1,5 +1,5 @@
 #[derive(Clone, Debug)]
-pub(super) struct Path(String);
+pub struct Path(String);
 
 impl Path {
     pub(super) fn as_str(&self) -> &str {

@@ -3,13 +3,14 @@ use crate::model::virtualmachine::{
     communicationstate, dedicated, detailedstatus, enableddefault, enabledstate, enhancedsessionmodestate, healthstate, operatingstatus, operationalstatus, powermanagementcapabilities, primarystatus, replicationmode, requestedstate,
     resetcapability, transitioningtostate,
 };
-use crate::model::{Error, WmiPath};
+use crate::model::Error;
 use crate::infra::ComputerSystemOut;
+use crate::infra::Path;
 use chrono::{DateTime, Utc};
 use std::time::Duration;
 use uuid::Uuid;
 
-#[derive(Clone, Debug, Eq, PartialEq)]
+#[derive(Clone, Debug)]
 pub struct VirtualMachine {
     available_requested_states: Vec<requestedstate::RequestedState>,
     caption: String,
@@ -36,7 +37,7 @@ pub struct VirtualMachine {
     other_dedicated_descriptions: Vec<String>,                                                    // Always set to null
     other_enabled_state: Option<String>,                                                                  // Must be null when EnabledState is not Other. Always set to null
     other_identifying_info: Vec<String>,                                                          // Always set to null
-    path: WmiPath,
+    path: Path,
     power_management_capabilities: Vec<powermanagementcapabilities::PowerManagementCapabilities>, // Not used
     primary_owner_contact: Option<String>,                                                                // Always set to null
     primary_owner_name: Option<String>,                                                                   // Always set to null
@@ -102,7 +103,7 @@ impl std::fmt::Display for VirtualMachine {
 }
 
 impl VirtualMachine {
-    pub fn path(&self) -> &WmiPath {
+    pub fn path(&self) -> &Path {
         &self.path
     }
 
@@ -230,7 +231,7 @@ impl TryFrom<ComputerSystemOut> for VirtualMachine {
 
     fn try_from(computer_system: ComputerSystemOut) -> Result<Self, Self::Error> {
         Ok(Self {
-            path: WmiPath::from(computer_system.path),
+            path: Path::from(computer_system.path),
             available_requested_states: computer_system
                 .AvailableRequestedStates
                 .into_iter()

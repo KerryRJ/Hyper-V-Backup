@@ -2,13 +2,13 @@
 use std::path::PathBuf;
 use super::*;
 
-pub(super) struct VirtualSystemReferencePointService {
+pub(crate) struct VirtualSystemReferencePointService {
     connection: wmi::WMIConnection,
     path: String,
 }
 
 impl VirtualSystemReferencePointService {
-    pub(super) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
+    pub(crate) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let service = connection
             .raw_query::<VirtualSystemReferencePointServiceOut>("SELECT * FROM Msvm_VirtualSystemReferencePointService")?
             .into_iter()
@@ -17,7 +17,7 @@ impl VirtualSystemReferencePointService {
         Ok(Self { connection, path: service.path })
     }
 
-    pub(super) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: ReferencePointType, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
+    pub(crate) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: ReferencePointType, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
         let create_reference_point_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemReferencePointService")?
@@ -86,7 +86,7 @@ impl VirtualSystemReferencePointService {
         job.get_related("Msvm_VirtualSystemReferencePoint").await
     }
 
-    pub(super) async fn export(&self, reference_point: &VirtualSystemReferencePoint, export_directory: PathBuf, export_setting_data: VirtualSystemReferencePointSettingDataIn) -> wmi::WMIResult<JobState> {
+    pub(crate) async fn export(&self, reference_point: &VirtualSystemReferencePoint, export_directory: PathBuf, export_setting_data: VirtualSystemReferencePointSettingDataIn) -> wmi::WMIResult<JobState> {
         let export_reference_point_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemReferencePointService")?
@@ -94,7 +94,7 @@ impl VirtualSystemReferencePointService {
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportReferencePoint method signature not found".into()))?;
         let mut job_events = self
             .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let reference_point_setting_data_xml_string = export_setting_data
             .to_xml()
             .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?;
@@ -145,7 +145,7 @@ impl VirtualSystemReferencePointService {
         }
     }
 
-    pub(super) async fn destroy(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
+    pub(crate) async fn destroy(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
         let destroy_reference_point_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemReferencePointService")?
@@ -153,7 +153,7 @@ impl VirtualSystemReferencePointService {
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroyReferencePoint method signature not found".into()))?;
         let mut job_events = self
             .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = destroy_reference_point_method_class.spawn_instance()?;
         input
             .put_property("AffectedReferencePoint", affected_reference_point.path.as_str().to_owned())
@@ -195,7 +195,7 @@ impl VirtualSystemReferencePointService {
         }
     }
 
-    pub(super) async fn remove_associated_data(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
+    pub(crate) async fn remove_associated_data(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
         let remove_associated_data_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemReferencePointService")?
@@ -203,7 +203,7 @@ impl VirtualSystemReferencePointService {
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("RemoveAssociatedData method signature not found".into()))?;
         let mut job_events = self
             .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT TargetInstance FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = remove_associated_data_method_class.spawn_instance()?;
         input
             .put_property("AffectedReferencePoint", affected_reference_point.path.as_str().to_owned())
@@ -245,7 +245,7 @@ impl VirtualSystemReferencePointService {
         }
     }
 
-    pub(super) async fn import_metadata(&self, affected_system: &VirtualMachine, config_file_path: PathBuf, runtime_state_file_path: PathBuf) -> wmi::WMIResult<VirtualMachine> {
+    pub(crate) async fn import_metadata(&self, affected_system: &VirtualMachine, config_file_path: PathBuf, runtime_state_file_path: PathBuf) -> wmi::WMIResult<VirtualMachine> {
         unimplemented!()
     }
 }

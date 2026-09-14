@@ -18,3 +18,9 @@ impl AsRef<str> for Path {
         self.as_str()
     }
 }
+
+impl std::fmt::Display for Path {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}

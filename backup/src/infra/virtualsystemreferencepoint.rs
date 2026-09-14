@@ -1,18 +1,18 @@
 use std::fmt;
 
 use serde::{Deserialize, Deserializer};
-use uuid::Uuid;
+use super::*;
 
 #[derive(Clone)]
 pub(crate) struct VirtualSystemReferencePoint {
-    pub consistency_level: super::ConsistencyLevel, // rw
-    pub has_associated_data: bool,                  // rw
-    pub instance_id: super::InstanceId,             // r
-    pub path: super::Path,
-    pub reference_point_type: super::ReferencePointType,                              // rw
-    pub resilient_change_tracking_identifiers: Vec<super::ResilientChangeTrackingId>, // r
-    pub virtual_disk_identifiers: Vec<super::VirtualDiskId>,                          // r
-    pub virtual_system_identifier: super::VirtualMachineId,                           // r
+    pub consistency_level: ConsistencyLevel, // rw
+    pub has_associated_data: bool,  // rw
+    pub instance_id: InstanceId, // r
+    pub path: Path,
+    pub reference_point_type: ReferencePointType,    // rw
+    pub resilient_change_tracking_identifiers: Vec<ResilientChangeTrackingId>, // r
+    pub virtual_disk_identifiers: Vec<VirtualDiskId>,    // r
+    pub virtual_system_identifier: VirtualMachineId, // r
 }
 
 impl fmt::Debug for VirtualSystemReferencePoint {
@@ -36,22 +36,19 @@ impl<'de> Deserialize<'de> for VirtualSystemReferencePoint {
     where
         D: Deserializer<'de>,
     {
-        let output = super::VirtualSystemReferencePointOut::deserialize(deserializer)?;
-        let virtual_system_identifier = Uuid::parse_str(&output.VirtualSystemIdentifier).map_err(serde::de::Error::custom)?;
+        let output = VirtualSystemReferencePointOut::deserialize(deserializer)?;
+        let virtual_system_identifier = VirtualMachineId::parse_str(&output.VirtualSystemIdentifier).map_err(serde::de::Error::custom)?;
         let virtual_disk_identifiers = output
             .VirtualDiskIdentifiers
             .into_iter()
-            .map(|value| Uuid::parse_str(&value).map(super::VirtualDiskId::from))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(serde::de::Error::custom)?;
+            .map(VirtualDiskId::from)
+            .collect::<Vec<_>>();
         let resilient_change_tracking_identifiers = output
             .ResilientChangeTrackingIdentifiers
             .into_iter()
-            .map(|value| Uuid::parse_str(&value).map(super::ResilientChangeTrackingId::from))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(serde::de::Error::custom)?;
-
-        Ok(Self {
+            .map(ResilientChangeTrackingId::from)
+            .collect::<Vec<_>>();
+        let reference_point = Self {
             consistency_level: output.ConsistencyLevel.try_into().map_err(serde::de::Error::custom)?,
             has_associated_data: output.HasAssociatedData,
             instance_id: output.InstanceID.into(),
@@ -60,6 +57,17 @@ impl<'de> Deserialize<'de> for VirtualSystemReferencePoint {
             resilient_change_tracking_identifiers,
             virtual_disk_identifiers,
             virtual_system_identifier: virtual_system_identifier.into(),
-        })
+        };
+        Ok(reference_point)
+    }
+}
+
+impl VirtualSystemReferencePoint {
+    pub(crate) fn reference_point_id(&self) -> Result<ReferencePointId, crate::model::Error> {
+        let reference_point_id = ReferencePointId::parse_str(self.instance_id.as_ref()).map_err(|error| match error {
+            crate::model::ReferencePointIdError::InvalidUuid(error) => crate::model::Error::Uuid(error),
+            crate::model::ReferencePointIdError::Nil => crate::model::Error::InvalidField("reference point identifier cannot be nil"),
+        })?;
+        Ok(reference_point_id)
     }
 }

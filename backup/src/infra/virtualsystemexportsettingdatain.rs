@@ -1,26 +1,26 @@
 use serde::Serialize;
 
-use crate::model::SnapshotSettings;
+use crate::model::ExportSettings;
 
 #[derive(Serialize)]
 #[serde(rename = "INSTANCE")]
-pub(crate) struct VirtualSystemSettingDataIn {
+pub(crate) struct VirtualSystemExportSettingDataIn {
     #[serde(rename = "@CLASSNAME")]
     pub(super) classname: &'static str,
     #[serde(rename = "PROPERTY")]
     pub(super) properties: Vec<super::Property>,
 }
 
-impl VirtualSystemSettingDataIn {
+impl VirtualSystemExportSettingDataIn {
     pub(super) fn to_xml(&self) -> Result<String, quick_xml::SeError> {
         quick_xml::se::to_string(self)
     }
 }
 
-impl From<&SnapshotSettings> for VirtualSystemSettingDataIn {
-    fn from(settings: &SnapshotSettings) -> Self {
+impl From<&ExportSettings> for VirtualSystemExportSettingDataIn {
+    fn from(settings: &ExportSettings) -> Self {
         Self {
-            classname: "Msvm_VirtualSystemSnapshotSettingData",
+            classname: "Msvm_VirtualSystemExportSettingData",
             properties: settings
                 .properties
                 .iter()

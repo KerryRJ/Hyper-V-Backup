@@ -2,7 +2,7 @@ use super::*;
 use serde::{Deserialize, Deserializer};
 
 #[derive(Debug)]
-pub(super) struct VirtualSystemSnapshotService {
+pub(crate) struct VirtualSystemSnapshotService {
     available_requested_states: Option<Vec<AvailableRequestedState>>,
     caption: String,
     communication_status: Option<super::CommunicationStatus>,
@@ -73,7 +73,7 @@ impl std::fmt::Display for VirtualSystemSnapshotService {
 }
 
 impl VirtualSystemSnapshotService {
-    pub(super) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
+    pub(crate) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let service = connection
             .raw_query::<VirtualSystemSnapshotServiceOut>("SELECT * FROM Msvm_VirtualSystemSnapshotService")?
             .into_iter()
@@ -117,19 +117,19 @@ impl VirtualSystemSnapshotService {
         })
     }
 
-    pub(super) async fn apply(&self, snapshot: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
+    pub(crate) async fn apply(&self, snapshot: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
         let apply_snapshot_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemSnapshotService")?
             .get_method("ApplySnapshot")?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("ApplySnapshot method signature not found".into()))?;
-        log::debug!("ApplySnapshot requested for snapshot instance: {}", snapshot.path);
+        log::debug!("ApplySnapshot requested for snapshot instance: {}", snapshot.path.as_str());
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = apply_snapshot_method_class.spawn_instance()?;
         input
-            .put_property("SnapshotSettingData", snapshot.path)
+            .put_property("SnapshotSettingData", snapshot.path.as_str())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
         let result = self
             .connection
@@ -166,19 +166,19 @@ impl VirtualSystemSnapshotService {
         }
     }
 
-    pub (super) async fn clear_state(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
+    pub (crate) async fn clear_state(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
         let clear_snapshot_state_tree_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemSnapshotService")?
             .get_method("ClearSnapshotState")?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("ClearSnapshotState method signature not found".into()))?;
-        log::debug!("ClearSnapshotState requested for snapshot instance: {}", snapshot_setting_data.path);
+        log::debug!("ClearSnapshotState requested for snapshot instance: {}", snapshot_setting_data.path.as_str());
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = clear_snapshot_state_tree_method_class.spawn_instance()?;
         input
-            .put_property("SnapshotSettingData", snapshot_setting_data.path)
+            .put_property("SnapshotSettingData", snapshot_setting_data.path.as_str())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
         let result = self
             .connection
@@ -214,7 +214,7 @@ impl VirtualSystemSnapshotService {
         }
     }
 
-    pub(super)  async fn create(&self, affected_system: &VirtualMachine, snapshot_settings: Option<VirtualSystemSettingDataIn>, snapshot_type: SnapshotType, resulting_snapshot: Option<VirtualSystemSettingData>) -> wmi::WMIResult<VirtualSystemSettingData> {
+    pub(crate)  async fn create(&self, affected_system: &VirtualMachine, snapshot_settings: Option<VirtualSystemSettingDataIn>, snapshot_type: SnapshotType, resulting_snapshot: Option<VirtualSystemSettingData>) -> wmi::WMIResult<VirtualSystemSettingData> {
         let create_snapshot_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemSnapshotService")?
@@ -241,7 +241,7 @@ impl VirtualSystemSnapshotService {
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotType: {error}").into()))?;
         let resulting_snapshot_path = resulting_snapshot
             .as_ref()
-            .map(|snapshot| wmi::Variant::String(snapshot.path.clone()))
+            .map(|snapshot| wmi::Variant::String(snapshot.path.as_str().to_owned()))
             .unwrap_or(wmi::Variant::Null);
         input
             .put_property("ResultingSnapshot", resulting_snapshot_path)
@@ -274,7 +274,7 @@ impl VirtualSystemSnapshotService {
         job.get_related("Msvm_VirtualSystemSettingData").await
     }
 
-    pub(super) async fn destroy(&self, affected_snapshot: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
+    pub(crate) async fn destroy(&self, affected_snapshot: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
         let destroy_snapshot_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemSnapshotService")?
@@ -316,19 +316,19 @@ impl VirtualSystemSnapshotService {
         }
     }
 
-    pub(super) async fn destroy_tree(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
+    pub(crate) async fn destroy_tree(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
         let destroy_snapshot_tree_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemSnapshotService")?
             .get_method("DestroySnapshotTree")?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree method signature not found".into()))?;
-        log::debug!("DestroySnapshotTree requested for snapshot instance: {}", snapshot_setting_data.path);
+        log::debug!("DestroySnapshotTree requested for snapshot instance: {}", snapshot_setting_data.path.as_str());
         let mut job_events = self
             .connection
             .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = destroy_snapshot_tree_method_class.spawn_instance()?;
         input
-            .put_property("SnapshotSettingData", snapshot_setting_data.path)
+            .put_property("SnapshotSettingData", snapshot_setting_data.path.as_str())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
         let result = self
             .connection
@@ -364,7 +364,7 @@ impl VirtualSystemSnapshotService {
         }
     }
 
-    pub(super) async fn convert_to_reference_point(&self, affectd_snapshot: VirtualSystemSettingData, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, resulting_reference_point: Option<VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
+    pub(crate) async fn convert_to_reference_point(&self, affectd_snapshot: VirtualSystemSettingData, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, resulting_reference_point: Option<VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
         let convert_to_reference_point_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemSnapshotService")?
@@ -412,7 +412,8 @@ impl VirtualSystemSnapshotService {
         }
         let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint returned no job".into()))?;
         let job = Job::wait(&self.connection, path, &mut job_events).await?;
-        job.get_related("Msvm_VirtualSystemReferencePoint").await
+        let reference_point = job.get_related("Msvm_VirtualSystemReferencePoint").await?;
+        Ok(reference_point)
     }
 }
 

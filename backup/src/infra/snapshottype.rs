@@ -1,4 +1,5 @@
-pub(super) enum SnapshotType {
+#[derive(Clone, Debug)]
+pub enum SnapshotType {
     Full,
     Disk,
     DMTF(u16),

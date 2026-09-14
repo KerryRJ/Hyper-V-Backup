@@ -131,7 +131,7 @@ impl Job {
                 },
                 8 => return Err(wmi::WMIError::ConvertVariantError(format!("The job has been terminated ({})", concrete_job.JobState).into())), // Terminated
                 9 => return Err(wmi::WMIError::ConvertVariantError(format!("The job has been killed ({})", concrete_job.JobState).into())), // Killed
-                10 => return Err(wmi::WMIError::ConvertVariantError(format!("The job is in an exception state ({})", concrete_job.JobState).into())), // Exception
+                10 => return Err(wmi::WMIError::ConvertVariantError(format!("The job is in an exception state ({}): {} ({})", concrete_job.JobState, concrete_job.ErrorDescription, concrete_job.ErrorCode).into())), // Exception
                 11 => return Err(wmi::WMIError::ConvertVariantError("The job is in a vendor-specific state that supports problem discovery, or resolution, or both".into())), // Service lost
                 12 => return Err(wmi::WMIError::ConvertVariantError("The job is in a pending query state".into())), // TODO: How?
                 13..=32767 => return Err(wmi::WMIError::ConvertVariantError(format!("The job is in a DMTF reserved state ({})", concrete_job.JobState).into())),
@@ -196,7 +196,6 @@ impl Job {
     {
         let job_path = self.path.as_str();
         let query = format!("ASSOCIATORS OF {{{job_path}}} WHERE AssocClass = CIM_AffectedJobElement ResultClass = {relation}");
-
         let related_objects = self.connection.raw_query::<std::collections::HashMap<String, serde_json::Value>>(&query)?;
         let related_object = related_objects.into_iter().next().ok_or_else(|| {
             wmi::WMIError::ConvertVariantError(format!("Related object not found for job: {job_path}").into())
@@ -213,12 +212,20 @@ impl Job {
                 .raw_query::<std::collections::HashMap<String, serde_json::Value>>(&query)?
                 .into_iter()
                 .next()
-                .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Related object {instance_id} not found").into()))?
-            ;
+                .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Related object {instance_id} not found").into()))?;
             let authority = job_path.split_once(':').map(|(authority, _)| authority).unwrap_or_default();
+                let key = if relation == "Msvm_VirtualSystemReferencePoint" {
+                    let virtual_system_identifier = related_object
+                        .get("VirtualSystemIdentifier")
+                        .and_then(serde_json::Value::as_str)
+                        .ok_or_else(|| wmi::WMIError::ConvertVariantError("Related reference point has no VirtualSystemIdentifier".into()))?;
+                    format!(r#"InstanceID="{instance_id}",VirtualSystemIdentifier="{virtual_system_identifier}""#)
+                } else {
+                    format!(r#"InstanceID="{instance_id}""#)
+                };
             related_object.insert(
                 "__Path".to_owned(),
-                serde_json::Value::String(format!(r#"{authority}:{relation}.InstanceID="{instance_id}""#)),
+                    serde_json::Value::String(format!(r#"{authority}:{relation}.{key}"#)),
             );
             related_object
         };

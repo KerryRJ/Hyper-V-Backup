@@ -102,7 +102,7 @@ pub(super) enum JobType {
     SnapshotCollection,
     ConvertSnapshotToReferencePoint,
     CreateReferencePoint,
-    DeleteReferencePoint,
+    CannotFindWhatThisRepresentsEither,
     ExportReferencePoint,
     RemoveAssociatedDataFromReferencePoint,
     CreateReferencePointOnCollection,
@@ -110,11 +110,12 @@ pub(super) enum JobType {
     RemoveAssociatedDataFromReferencePointOnCollection,
     DeleteReferencePointOnCollection,
     ImportReferencePointMetadata,
+    CannotFindWhatThisRepresents,
     MountOrDismountAssignableDevice,
 }
 
 impl TryFrom<u16> for JobType {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
@@ -218,7 +219,7 @@ impl TryFrom<u16> for JobType {
             198 => Ok(Self::SnapshotCollection),
             200 => Ok(Self::ConvertSnapshotToReferencePoint),
             201 => Ok(Self::CreateReferencePoint),
-            202 => Ok(Self::DeleteReferencePoint),
+            202 => Ok(Self::CannotFindWhatThisRepresentsEither),
             203 => Ok(Self::ExportReferencePoint),
             204 => Ok(Self::RemoveAssociatedDataFromReferencePoint),
             205 => Ok(Self::CreateReferencePointOnCollection),
@@ -226,8 +227,10 @@ impl TryFrom<u16> for JobType {
             207 => Ok(Self::RemoveAssociatedDataFromReferencePointOnCollection),
             208 => Ok(Self::DeleteReferencePointOnCollection),
             209 => Ok(Self::ImportReferencePointMetadata),
+            210 => Ok(Self::CannotFindWhatThisRepresents),
+            212 => Ok(Self::CannotFindWhatThisRepresentsEither),
             260 => Ok(Self::MountOrDismountAssignableDevice),
-            _ => Err("Unsupported job state"),
+            _ => Err(format!("Unsupported JobType {value}")),
         }
     }
 }

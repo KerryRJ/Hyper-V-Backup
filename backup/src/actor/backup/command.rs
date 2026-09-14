@@ -1,5 +1,4 @@
-use crate::service::backup::{BackupId, BackupRequest, ReferencePointBackupOptions};
-use crate::service::referencepointservice::ReferencePointCreateRequest;
+use crate::model::*;
 
 pub(crate) enum Command {
     Start {
@@ -9,7 +8,7 @@ pub(crate) enum Command {
     StartWithReferencePoint {
         id: BackupId,
         request: BackupRequest,
-        reference_point: ReferencePointCreateRequest,
-        options: ReferencePointBackupOptions,
+        // reference_point: ReferencePointCreateRequest,
+        // options: ReferencePointBackupOptions,
     },
 }

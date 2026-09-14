@@ -20,6 +20,12 @@ impl Host {
         Ok(VirtualMachine::from(machine, self.connection.clone())?)
     }
 
+    pub async fn get_virtual_machine_by_name(&self, name: &str) -> Result<VirtualMachine, Error> {
+        let q = format!("{QUERY} AND ElementName = '{name}'");
+        let machine = self.connection.async_raw_query::<ComputerSystemOut>(&q).await?.into_iter().next().ok_or_else(|| Error::InvalidBackupRequest("virtual machine not found"))?;
+        Ok(VirtualMachine::from(machine, self.connection.clone())?)
+    }
+
     pub async fn get_virtual_machines(&self) -> Result<Vec<VirtualMachine>, Error> {
         self.connection
             .async_raw_query::<ComputerSystemOut>(QUERY)

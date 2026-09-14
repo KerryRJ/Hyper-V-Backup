@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Debug)]
-pub(super) enum JobState {
+pub(crate) enum JobState {
     New,
     Starting,
     Running,
@@ -18,7 +18,7 @@ pub(super) enum JobState {
 }
 
 impl TryFrom<u16> for JobState {
-    type Error = &'static str;
+    type Error = String;
 
     fn try_from(value: u16) -> Result<Self, Self::Error> {
         match value {
@@ -35,7 +35,7 @@ impl TryFrom<u16> for JobState {
             // 12 => Ok(JobState::QueryPending),
             11..=32767 => Ok(Self::DmtfReserved(value)),
             32768..=65535 => Ok(Self::VendorReserved(value)),
-            _ => Err("Unsupported job state"),
+            _ => Err(format!("Unsupported job state {value}")),
         }
     }
 }

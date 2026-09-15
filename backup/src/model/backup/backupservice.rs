@@ -35,7 +35,7 @@ impl BackupService {
             properties: vec![
                 SnapshotProperty {
                     name: "ConsistencyLevel".into(),
-                    value: SnapshotPropertyValue::Uint8(request.crash_consistency as u8),
+                    value: SnapshotPropertyValue::Uint8(u8::from(request.crash_consistency)),
                 },
                 SnapshotProperty {
                     name: "IgnoreNonSnapshottableDisks".into(),
@@ -61,6 +61,10 @@ impl BackupService {
 
         let mut export_settings = ExportSettings {
             properties: vec![
+                ExportProperty {
+                    name: "CaptureLiveState".into(),
+                    value: ExportPropertyValue::Uint8(0),
+                },
                 ExportProperty {
                     name: "CopySnapshotConfiguration".into(),
                     value: ExportPropertyValue::Uint8(CopySnapshotConfiguration::ExportOneSnapshotForBackup as u8),
@@ -134,7 +138,7 @@ impl BackupService {
                     properties: vec![
                         ReferencePointProperty {
                             name: "ConsistencyLevel".into(),
-                            value: ReferencePointPropertyValue::Uint8(request.crash_consistency as u8),
+                            value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
                         },
                     ],
                 };

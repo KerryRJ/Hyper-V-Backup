@@ -10,14 +10,31 @@ pub(crate) struct VirtualSystemReferencePointService {
 impl VirtualSystemReferencePointService {
     pub(crate) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let service = connection
-            .raw_query::<VirtualSystemReferencePointServiceOut>("SELECT * FROM Msvm_VirtualSystemReferencePointService")?
+            .raw_query::<VirtualSystemReferencePointServiceOut>("SELECT * FROM Msvm_VirtualSystemReferencePointService WHERE __CLASS = 'Msvm_VirtualSystemReferencePointService'")?
             .into_iter()
             .next()
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("Virtual system reference point service not found".into()))?;
+        if service.class_name != "Msvm_VirtualSystemReferencePointService" {
+            return Err(wmi::WMIError::ConvertVariantError(
+                format!("Unexpected reference point service class: {}", service.class_name).into(),
+            ));
+        }
+        log::debug!(
+            "Resolved reference point service class {} at {}",
+            service.class_name,
+            service.path,
+        );
         Ok(Self { connection, path: service.path })
     }
 
-    pub(crate) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: ReferencePointType, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
+    pub(crate) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: ReferencePointTypeIn, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
+        log::debug!(
+            "Creating reference point for system {}; type: {:?}; has settings: {}; resulting reference point: {}",
+            affected_system.path,
+            reference_point_type,
+            reference_point_settings.is_some(),
+            resulting_reference_point.is_some(),
+        );
         let create_reference_point_method_class = self
             .connection
             .get_object("Msvm_VirtualSystemReferencePointService")?
@@ -31,6 +48,10 @@ impl VirtualSystemReferencePointService {
             .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
             .unwrap_or_default();
         let reference_point_type_value = u16::from(&reference_point_type);
+        log::trace!(
+            "CreateReferencePoint request: settings XML: {reference_point_setting_data_xml_string:?}; type value: {reference_point_type_value}; resulting reference point: {:?}",
+            resulting_reference_point.map(|reference_point| reference_point.path.as_str()),
+        );
         let input = create_reference_point_method_class.spawn_instance()?;
         input
             .put_property("AffectedSystem", affected_system.path.as_str())
@@ -48,12 +69,64 @@ impl VirtualSystemReferencePointService {
         input
             .put_property("ResultingReferencePoint", resulting_reference_point_path)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingReferencePoint: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "CreateReferencePoint", Some(&input))
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint WMI call failed: {error}").into()))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no output".into()))?
-            .into_desr::<MethodResult>()?;
+        if log::log_enabled!(log::Level::Trace) {
+            match input.list_properties() {
+                Ok(properties) => {
+                    log::trace!("CreateReferencePoint input properties: {properties:?}");
+                    for property in properties {
+                        match input.get_property(&property) {
+                            Ok(value) => log::trace!("CreateReferencePoint input {property} = {value:?}"),
+                            Err(error) => log::trace!("Failed to read CreateReferencePoint input {property}: {error}"),
+                        }
+                    }
+                },
+                Err(error) => log::trace!("Failed to enumerate CreateReferencePoint input properties: {error}"),
+            }
+        }
+        log::trace!(
+            "Executing CreateReferencePoint on service path: {}; affected system: {}",
+            self.path,
+            affected_system.path,
+        );
+        let method_started_at = std::time::Instant::now();
+        let output = match self.connection.exec_method(&self.path, "CreateReferencePoint", Some(&input)) {
+            Ok(Some(output)) => output,
+            Ok(None) => {
+                log::error!(
+                    "CreateReferencePoint returned no output after {:?}",
+                    method_started_at.elapsed(),
+                );
+                return Err(wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no output".into()));
+            },
+            Err(error) => {
+                log::error!(
+                    "CreateReferencePoint WMI call failed after {:?}: {error}",
+                    method_started_at.elapsed(),
+                );
+                return Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint WMI call failed: {error}").into()));
+            },
+        };
+        log::debug!("CreateReferencePoint WMI call completed in {:?}", method_started_at.elapsed());
+        if log::log_enabled!(log::Level::Trace) {
+            match output.list_properties() {
+                Ok(properties) => {
+                    log::trace!("CreateReferencePoint output properties: {properties:?}");
+                    for property in properties {
+                        match output.get_property(&property) {
+                            Ok(value) => log::trace!("CreateReferencePoint output {property} = {value:?}"),
+                            Err(error) => log::trace!("Failed to read CreateReferencePoint output {property}: {error}"),
+                        }
+                    }
+                },
+                Err(error) => log::trace!("Failed to enumerate CreateReferencePoint output properties: {error}"),
+            }
+        }
+        let result = output.into_desr::<MethodResult>()?;
+        log::debug!(
+            "CreateReferencePoint returned value: {}; job: {:?}",
+            result.return_value,
+            result.job,
+        );
         if result.return_value != 0 && result.return_value != 4096 {
             let return_value_message =
                 match result.return_value {
@@ -82,8 +155,14 @@ impl VirtualSystemReferencePointService {
             return Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint failed: {return_value_message} ({})", result.return_value).into()));
         }
         let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no job".into()))?;
+        log::debug!("Waiting for CreateReferencePoint job: {path}");
         let job = Job::wait(&self.connection, path, &mut job_events).await?;
-        job.get_related("Msvm_VirtualSystemReferencePoint").await
+        log::debug!("CreateReferencePoint job completed with state: {:?}", job.job_state);
+        log::debug!("CreateReferencePoint job details:\n{job:#}");
+        log::debug!("Resolving reference point related to completed CreateReferencePoint job");
+        let reference_point: VirtualSystemReferencePoint = job.get_related("Msvm_VirtualSystemReferencePoint").await?;
+        log::debug!("CreateReferencePoint resolved reference point: {}", reference_point.path);
+        Ok(reference_point)
     }
 
     pub(crate) async fn export(&self, reference_point: &VirtualSystemReferencePoint, export_directory: PathBuf, export_setting_data: VirtualSystemReferencePointSettingDataIn) -> wmi::WMIResult<JobState> {
@@ -274,7 +353,7 @@ mod tests {
                 Property {
                     name: "ConsistencyLevel".into(),
                     cim_type: "uint8".into(),
-                    value: (ConsistencyLevel::Crash as u8).to_string(),
+                    value: u8::from(ConsistencyLevel::Crash).to_string(),
                 },
             ],
         }
@@ -283,7 +362,7 @@ mod tests {
     async fn create_reference_point(service: &VirtualSystemReferencePointService, connection: &wmi::WMIConnection) -> VirtualSystemReferencePoint {
         log::info!("Creating reference point");
         let reference_point = service
-            .create(&configured_vm(connection).await, Some(reference_point_settings()), ReferencePointType::Rct, None)
+            .create(&configured_vm(connection).await, Some(reference_point_settings()), ReferencePointTypeIn::Rct, None)
             .await
             .expect("reference point should be created");
         log::info!("Reference point created: {}", reference_point.path.as_str());
@@ -294,7 +373,7 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a configured Hyper-V VM"]
-    async fn creates_reference_point_for_configured_vm() {  // TODO: This always returns Not support
+    async fn creates_reference_point_for_configured_vm() {  // TODO: This always returns Not supported
         let _ = env_logger::try_init();
         log::info!("Starting creates_reference_point_for_configured_vm");
         let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");

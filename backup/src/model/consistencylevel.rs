@@ -18,6 +18,15 @@ impl TryFrom<u16> for ConsistencyLevel {
     }
 }
 
+impl From<ConsistencyLevel> for u8 {
+    fn from(value: ConsistencyLevel) -> Self {
+        match value {
+            ConsistencyLevel::Application => 1,
+            ConsistencyLevel::Crash => 2,
+        }
+    }
+}
+
 impl<'de> Deserialize<'de> for ConsistencyLevel {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where

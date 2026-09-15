@@ -454,7 +454,7 @@ mod tests {
                 Property {
                     name: "ConsistencyLevel".into(),
                     cim_type: "uint8".into(),
-                    value: (ConsistencyLevel::Crash as u8).to_string(),
+                    value: u8::from(ConsistencyLevel::Crash).to_string(),
                 },
                 Property {
                     name: "IgnoreNonSnapshottableDisks".into(),
@@ -502,7 +502,7 @@ mod tests {
                                 Property {
                                     name: "ConsistencyLevel".into(),
                                     cim_type: "uint8".into(),
-                                    value: (ConsistencyLevel::Crash as u8).to_string(),
+                                    value: u8::from(ConsistencyLevel::Crash).to_string(),
                                 },
                                 Property {
                                     name: "IgnoreNonSnapshottableDisks".into(),

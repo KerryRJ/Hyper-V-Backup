@@ -102,7 +102,6 @@ pub(super) enum JobType {
     SnapshotCollection,
     ConvertSnapshotToReferencePoint,
     CreateReferencePoint,
-    CannotFindWhatThisRepresentsEither,
     ExportReferencePoint,
     RemoveAssociatedDataFromReferencePoint,
     CreateReferencePointOnCollection,
@@ -111,6 +110,8 @@ pub(super) enum JobType {
     DeleteReferencePointOnCollection,
     ImportReferencePointMetadata,
     CannotFindWhatThisRepresents,
+    CannotFindWhatThisRepresentsEither,
+    CannotFindWhatThisRepresentsUngaas,
     MountOrDismountAssignableDevice,
 }
 
@@ -228,7 +229,8 @@ impl TryFrom<u16> for JobType {
             208 => Ok(Self::DeleteReferencePointOnCollection),
             209 => Ok(Self::ImportReferencePointMetadata),
             210 => Ok(Self::CannotFindWhatThisRepresents),
-            212 => Ok(Self::CannotFindWhatThisRepresentsEither),
+            211 => Ok(Self::CannotFindWhatThisRepresentsEither),
+            212 => Ok(Self::CannotFindWhatThisRepresentsUngaas),
             260 => Ok(Self::MountOrDismountAssignableDevice),
             _ => Err(format!("Unsupported JobType {value}")),
         }

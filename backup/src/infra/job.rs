@@ -131,7 +131,35 @@ impl Job {
                 },
                 8 => return Err(wmi::WMIError::ConvertVariantError(format!("The job has been terminated ({})", concrete_job.JobState).into())), // Terminated
                 9 => return Err(wmi::WMIError::ConvertVariantError(format!("The job has been killed ({})", concrete_job.JobState).into())), // Killed
-                10 => return Err(wmi::WMIError::ConvertVariantError(format!("The job is in an exception state ({}): {} ({})", concrete_job.JobState, concrete_job.ErrorDescription, concrete_job.ErrorCode).into())), // Exception
+                10 => {
+                    log::error!(
+                        "Concrete job entered exception state: instance_id={}, element_name={}, job_status={:?}, status={:?}, description={:?}, error_code={}, error_description={:?}, error_summary_description={:?}, status_descriptions={:?}, percent_complete={}, operational_status={:?}",
+                        concrete_job.InstanceID,
+                        concrete_job.ElementName,
+                        concrete_job.JobStatus,
+                        concrete_job.Status,
+                        concrete_job.Description,
+                        concrete_job.ErrorCode,
+                        concrete_job.ErrorDescription,
+                        concrete_job.ErrorSummaryDescription,
+                        concrete_job.StatusDescriptions,
+                        concrete_job.PercentComplete,
+                        concrete_job.OperationalStatus,
+                    );
+                    log::debug!("Complete concrete job exception event: {concrete_job:#?}");
+                    return Err(wmi::WMIError::ConvertVariantError(format!(
+                        "The job is in an exception state ({}): {} ({}) [job_status={:?}; status={:?}; description={:?}; error_summary={:?}; status_descriptions={:?}; percent_complete={}]",
+                        concrete_job.JobState,
+                        concrete_job.ErrorDescription,
+                        concrete_job.ErrorCode,
+                        concrete_job.JobStatus,
+                        concrete_job.Status,
+                        concrete_job.Description,
+                        concrete_job.ErrorSummaryDescription,
+                        concrete_job.StatusDescriptions,
+                        concrete_job.PercentComplete,
+                    ).into()));
+                }, // Exception
                 11 => return Err(wmi::WMIError::ConvertVariantError("The job is in a vendor-specific state that supports problem discovery, or resolution, or both".into())), // Service lost
                 12 => return Err(wmi::WMIError::ConvertVariantError("The job is in a pending query state".into())), // TODO: How?
                 13..=32767 => return Err(wmi::WMIError::ConvertVariantError(format!("The job is in a DMTF reserved state ({})", concrete_job.JobState).into())),

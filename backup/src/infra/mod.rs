@@ -121,6 +121,7 @@ use transitioningstate::TransitioningState;
 pub(crate) use transitioningtostate::TransitioningToState;
 use usersnapshottype::UserSnapshotType;
 use version::Version;
+pub(crate) use virtualdisk::VirtualDisk;
 use virtualdiskid::VirtualDiskId;
 pub(crate) use crate::model::VirtualMachine;
 pub(crate) use virtualsystemexportsettingdatain::VirtualSystemExportSettingDataIn;

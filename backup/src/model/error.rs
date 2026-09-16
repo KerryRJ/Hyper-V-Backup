@@ -22,6 +22,8 @@ pub enum Error {
     BackupBackendUnavailable,
     #[error("Backup I/O operation failed: {0}")]
     Io(#[from] std::io::Error),
+    #[error("Virtual disk operation failed: {0}")]
+    VirtualDisk(#[from] windows::core::Error),
     #[error("Hyper-V WMI operation failed: {0}")]
     Wmi(#[from] wmi::WMIError),
 }

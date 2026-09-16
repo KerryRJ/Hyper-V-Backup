@@ -1,6 +1,8 @@
 use crate::infra::*;
 use crate::model::*;
 use chrono::{Local, Utc};
+use std::ffi::OsStr;
+use std::path::{Path, PathBuf};
 use super::*;
 
 // use chrono::{DateTime, Duration, Utc};
@@ -92,7 +94,8 @@ impl BackupService {
         } else {
             "f"
         };
-        if let Some(reference_point) = request.differential_backup_base {
+        let differential_backup_base = request.differential_backup_base.as_ref();
+        if let Some(reference_point) = differential_backup_base {
             log::debug!(
                 "Using differential backup base {}",
                 reference_point.path.as_str()
@@ -123,12 +126,18 @@ impl BackupService {
             .management_service
             .export_system_definition(
                 virtual_machine.clone(),
-                export_directory,
+                export_directory.clone(),
                 Some(VirtualSystemExportSettingDataIn::from(&export_settings)),
             )
             .await;
         match result {
             Ok(_) => {
+                let changed_ranges = query_exported_changes(&export_directory, differential_backup_base)?;
+                log::debug!(
+                    "Virtual-disk change tracking returned {} ranges for backup of {}",
+                    changed_ranges,
+                    virtual_machine_name
+                );
                 log::debug!(
                     "Export completed for virtual machine name {}; converting snapshot {} to a reference point",
                     virtual_machine_name,
@@ -176,6 +185,44 @@ impl BackupService {
             }
         }
     }
+}
+
+fn query_exported_changes(export_directory: &Path, base: Option<&VirtualSystemReferencePoint>) -> Result<usize, Error> {
+    let mut disk_paths = Vec::new();
+    collect_virtual_disks(export_directory, &mut disk_paths)?;
+    let mut changed_ranges = 0;
+
+    for (index, disk_path) in disk_paths.iter().enumerate() {
+        let disk = VirtualDisk::open(disk_path)?;
+        disk.set_change_tracking(true)?;
+        let (enabled, current_id) = disk.change_tracking_state()?;
+        if !enabled || current_id.is_empty() {
+            return Err(Error::InvalidBackupRequest("virtual disk change tracking is unavailable"));
+        }
+
+        if let Some(base) = base {
+            let change_tracking_id = base
+                .resilient_change_tracking_identifiers
+                .get(index)
+                .ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
+            let change_tracking_id = change_tracking_id.to_string();
+            changed_ranges += disk.query_changes(OsStr::new(&change_tracking_id), u64::MAX)?.len();
+        }
+    }
+
+    Ok(changed_ranges)
+}
+
+fn collect_virtual_disks(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Error> {
+    for entry in std::fs::read_dir(directory)? {
+        let path = entry?.path();
+        if path.is_dir() {
+            collect_virtual_disks(&path, paths)?;
+        } else if matches!(path.extension().and_then(|extension| extension.to_str()), Some("vhd") | Some("vhdx")) {
+            paths.push(path);
+        }
+    }
+    Ok(())
 }
 
 #[cfg(all(test, windows))]

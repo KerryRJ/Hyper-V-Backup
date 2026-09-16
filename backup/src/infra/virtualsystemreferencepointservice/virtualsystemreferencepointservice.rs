@@ -1,6 +1,7 @@
 
 use std::path::PathBuf;
-use super::*;
+use super::{ReferencePointTypeIn, VirtualSystemReferencePointServiceOut};
+use super::super::*;
 
 pub(crate) struct VirtualSystemReferencePointService {
     connection: wmi::WMIConnection,
@@ -27,7 +28,7 @@ impl VirtualSystemReferencePointService {
         Ok(Self { connection, path: service.path })
     }
 
-    pub(crate) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: ReferencePointTypeIn, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
+    pub(crate) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: super::ReferencePointTypeIn, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
         log::debug!(
             "Creating reference point for system {}; type: {:?}; has settings: {}; resulting reference point: {}",
             affected_system.path,

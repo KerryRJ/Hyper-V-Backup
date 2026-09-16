@@ -1,0 +1,9 @@
+mod referencepointtypein;
+mod virtualsystemreferencepointservice;
+mod virtualsystemreferencepointserviceout;
+mod virtualsystemreferencepointsettingdatain;
+
+pub(crate) use referencepointtypein::ReferencePointTypeIn;
+use virtualsystemreferencepointserviceout::VirtualSystemReferencePointServiceOut;
+pub(crate) use virtualsystemreferencepointsettingdatain::VirtualSystemReferencePointSettingDataIn;
+pub(crate) use virtualsystemreferencepointservice::VirtualSystemReferencePointService;

@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use crate::infra::*;
 use crate::model::*;
+use crate::model::referencepointservice::ConsistencyLevel;
 
 #[derive(Clone, Debug)]
 pub struct BackupRequest {

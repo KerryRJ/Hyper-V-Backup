@@ -9,7 +9,7 @@ pub(crate) struct VirtualSystemReferencePoint {
     pub has_associated_data: bool,  // rw
     pub instance_id: InstanceId, // r
     pub path: Path,
-    pub reference_point_type: ReferencePointType,    // rw
+    pub reference_point_type: crate::model::referencepointservice::ReferencePointType,    // rw
     pub resilient_change_tracking_identifiers: Vec<ResilientChangeTrackingId>, // r
     pub virtual_disk_identifiers: Vec<VirtualDiskId>,    // r
     pub virtual_system_identifier: VirtualMachineId, // r

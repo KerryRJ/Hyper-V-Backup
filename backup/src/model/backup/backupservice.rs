@@ -132,12 +132,6 @@ impl BackupService {
             .await;
         match result {
             Ok(_) => {
-                let changed_ranges = query_exported_changes(&export_directory, differential_backup_base)?;
-                log::debug!(
-                    "Virtual-disk change tracking returned {} ranges for backup of {}",
-                    changed_ranges,
-                    virtual_machine_name
-                );
                 log::debug!(
                     "Export completed for virtual machine name {}; converting snapshot {} to a reference point",
                     virtual_machine_name,
@@ -293,11 +287,11 @@ mod tests {
         assert!(!incremental_result.reference_point.path.to_string().is_empty());
 
         reference_point_service
-            .destroy(full_reference_point)
+            .destroy(&full_reference_point)
             .await
             .expect("full backup reference point should be destroyed");
         reference_point_service
-            .destroy(incremental_result.reference_point)
+            .destroy(&incremental_result.reference_point)
             .await
             .expect("incremental backup reference point should be destroyed");
     }

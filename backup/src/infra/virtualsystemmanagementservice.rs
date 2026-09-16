@@ -76,7 +76,7 @@ impl std::fmt::Display for VirtualSystemManagementService {
 impl VirtualSystemManagementService {
     pub(crate) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let service = connection
-            .raw_query::<VirtualSystemManagementServiceOut>("SELECT * FROM Msvm_VirtualSystemManagementService")?
+            .raw_query::<VirtualSystemManagementServiceOut>("SELECT * FROM Msvm_VirtualSystemManagementService WHERE __CLASS = 'Msvm_VirtualSystemManagementService'")?
             .into_iter()
             .next()
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("Virtual system management service not found".into()))?;
@@ -124,9 +124,6 @@ impl VirtualSystemManagementService {
             .get_object("Msvm_VirtualSystemManagementService")?
             .get_method("ExportSystemDefinition")?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportSystemDefinition method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let export_setting_data_xml_string = export_setting_data
             .as_ref()
             .map(VirtualSystemExportSettingDataIn::to_xml)
@@ -143,36 +140,7 @@ impl VirtualSystemManagementService {
         input
             .put_property("ExportSettingData", export_setting_data_xml_string)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportSettingData: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "ExportSystemDefinition", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportSystemDefinition returned no output".into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
-            0 => Ok(JobState::Completed),
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportSystemDefinition returned no job".into()))?;
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                Ok(job_state)
-            },
-            return_value => {
-                let description = match return_value {
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("ExportSystemDefinition failed: {description} ({return_value})").into()))
-            }
-        }
+        Job::execute_method(&self.connection, &self.path, "ExportSystemDefinition", &input).await
     }
 }
 

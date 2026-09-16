@@ -11,23 +11,23 @@ pub(crate) struct VirtualSystemSnapshotService {
     description: String,
     detailed_status: Option<DetailedStatus>,
     element_name: String,
-    enabled_default: EnabledState,   // Always 2 = Enabled
-    enabled_state: EnabledState, // Always 2 = Enabled
-    health_state: HealthState,   // Always set to 5 = Ok but is a range 0 to 30 where 30 is completely non-functional
+    enabled_default: EnabledState, // Always 2 = Enabled
+    enabled_state: EnabledState,   // Always 2 = Enabled
+    health_state: HealthState,     // Always set to 5 = Ok but is a range 0 to 30 where 30 is completely non-functional
     instance_id: Option<InstanceId>,
     install_date: chrono::DateTime<chrono::Utc>,
     name: String,
     operating_status: Option<OperatingStatus>,
-    operational_status: Vec<OperationalStatus>,  // Always set to 2 = OK
+    operational_status: Vec<OperationalStatus>, // Always set to 2 = OK
     other_enabled_state: Option<String>,
     path: String,
-    primary_owner_contact: Option<String>,    // Always set to null
-    primary_owner_name: Option<String>, // Always set to null
+    primary_owner_contact: Option<String>, // Always set to null
+    primary_owner_name: Option<String>,    // Always set to null
     primary_status: Option<PrimaryStatus>,
     requested_state: Option<RequestedState>, // Always set to 12 = Not Applicable
-    start_mode: Option<String>,  // Always set to null
+    start_mode: Option<String>,              // Always set to null
     started: bool,
-    status: Option<String>,  // Not used
+    status: Option<String>, // Not used
     status_descriptions: Vec<String>,
     system_creation_class_name: String,
     system_name: String,
@@ -73,9 +73,16 @@ impl std::fmt::Display for VirtualSystemSnapshotService {
 }
 
 impl VirtualSystemSnapshotService {
+    fn method(&self, method_name: &str) -> wmi::WMIResult<wmi::IWbemClassWrapper> {
+        self.connection
+            .get_object("Msvm_VirtualSystemSnapshotService")?
+            .get_method(method_name)?
+            .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("{method_name} method signature not found").into()))
+    }
+
     pub(crate) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let service = connection
-            .raw_query::<VirtualSystemSnapshotServiceOut>("SELECT * FROM Msvm_VirtualSystemSnapshotService")?
+            .raw_query::<VirtualSystemSnapshotServiceOut>("SELECT * FROM Msvm_VirtualSystemSnapshotService WHERE __CLASS = 'Msvm_VirtualSystemSnapshotService'")?
             .into_iter()
             .next()
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("Virtual system snapshot service not found".into()))?;
@@ -118,269 +125,80 @@ impl VirtualSystemSnapshotService {
     }
 
     pub(crate) async fn apply(&self, snapshot: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
-        let apply_snapshot_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemSnapshotService")?
-            .get_method("ApplySnapshot")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ApplySnapshot method signature not found".into()))?;
+        let apply_snapshot_method_class = self.method("ApplySnapshot")?;
         log::debug!("ApplySnapshot requested for snapshot instance: {}", snapshot.path.as_str());
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
         let input = apply_snapshot_method_class.spawn_instance()?;
-        input
-            .put_property("SnapshotSettingData", snapshot.path.as_str())
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "ApplySnapshot", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ApplySnapshot returned no output".into()))?
-            .into_desr::<result::Result>()?;
-        match result.return_value {
-            0 => Ok(JobState::Completed),
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ApplySnapshot returned no job".into()))?;
-                log::debug!("Waiting for ApplySnapshot job: {path}");
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                log::debug!("ApplySnapshot job completed with state: {job_state:?}");
-                Ok(job_state)
-            },
-            return_value => {
-                let description = match return_value {
-                    1 => "Not supported",
-                    2 => "Failed",
-                    3 => "Timeout",
-                    4 => "Invalid parameter",
-                    5 => "Invalid state",
-                    6 => "Invalid type",
-                    7..=4095 => "DMTF reserved",
-                    4097..=32767 => "Method reserved",
-                    32769 => "Access denied",
-                    32773 => "Invalid parameter",
-                    32775 => "Invalid state",
-                    32768 | 32770..=32772 | 32774 | 32776..=65535 => "Vendor specific",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("ApplySnapshot failed: {description} ({return_value})").into()))
-            }
-        }
+        input.put_property("SnapshotSettingData", snapshot.path.as_str()).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
+        Job::execute_method(&self.connection, &self.path, "ApplySnapshot", &input).await
     }
 
-    pub (crate) async fn clear_state(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
-        let clear_snapshot_state_tree_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemSnapshotService")?
-            .get_method("ClearSnapshotState")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ClearSnapshotState method signature not found".into()))?;
-        log::debug!("ClearSnapshotState requested for snapshot instance: {}", snapshot_setting_data.path.as_str());
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+    pub(crate) async fn clear_state(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
+        let clear_snapshot_state_tree_method_class = self.method("ClearSnapshotState")?;
         let input = clear_snapshot_state_tree_method_class.spawn_instance()?;
         input
             .put_property("SnapshotSettingData", snapshot_setting_data.path.as_str())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "ClearSnapshotState", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ClearSnapshotState returned no output".into()))?
-            .into_desr::<result::Result>()?;
-        match result.return_value {
-            0 => Ok(JobState::Completed),
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ClearSnapshotState returned no job".into()))?;
-                log::debug!("Waiting for ClearSnapshotState job: {path}");
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                log::debug!("ClearSnapshotState job completed with state: {job_state:?}");
-                Ok(job_state)
-            },
-            return_value => {
-                let description = match return_value {
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("ClearSnapshotState failed: {description} ({return_value})").into()))
-            }
-        }
+        Job::execute_method(&self.connection, &self.path, "ClearSnapshotState", &input).await
     }
 
-    pub(crate)  async fn create(&self, affected_system: &VirtualMachine, snapshot_settings: Option<VirtualSystemSettingDataIn>, snapshot_type: SnapshotType, resulting_snapshot: Option<VirtualSystemSettingData>) -> wmi::WMIResult<VirtualSystemSettingData> {
-        let create_snapshot_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemSnapshotService")?
-            .get_method("CreateSnapshot")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
-        let snapshot_setting_data_xml_string = snapshot_settings.as_ref().map(|rps| rps.to_xml())
-            .transpose()
-            .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
-            .unwrap_or_default();
+    pub(crate) async fn create(&self, affected_system: &VirtualMachine, snapshot_settings: Option<VirtualSystemSettingDataIn>, snapshot_type: SnapshotType, resulting_snapshot: Option<VirtualSystemSettingData>) -> wmi::WMIResult<VirtualSystemSettingData> {
+        let create_snapshot_method_class = self.method("CreateSnapshot")?;
+        let mut job_events = self.connection.async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let snapshot_setting_data_xml_string = snapshot_settings.as_ref().map(|rps| rps.to_xml()).transpose().map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?.unwrap_or_default();
         let snapshot_type_value = u16::from(snapshot_type);
-        let settings_supplied = !snapshot_setting_data_xml_string.is_empty();
         let input = create_snapshot_method_class.spawn_instance()?;
-        input
-            .put_property("AffectedSystem", affected_system.path.as_str())
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSystem: {error}").into()))?;
-        input
-            .put_property("SnapshotSettings", snapshot_setting_data_xml_string)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettings: {error}").into()))?;
-        input
-            .put_property("SnapshotType", snapshot_type_value)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotType: {error}").into()))?;
-        let resulting_snapshot_path = resulting_snapshot
-            .as_ref()
-            .map(|snapshot| wmi::Variant::String(snapshot.path.as_str().to_owned()))
-            .unwrap_or(wmi::Variant::Null);
-        input
-            .put_property("ResultingSnapshot", resulting_snapshot_path)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingSnapshot: {error}").into()))?;
+        input.put_property("AffectedSystem", affected_system.path.as_str()).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSystem: {error}").into()))?;
+        input.put_property("SnapshotSettings", snapshot_setting_data_xml_string).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettings: {error}").into()))?;
+        input.put_property("SnapshotType", snapshot_type_value).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotType: {error}").into()))?;
+        let resulting_snapshot_path = resulting_snapshot.as_ref().map(|snapshot| wmi::Variant::String(snapshot.path.as_str().to_owned())).unwrap_or(wmi::Variant::Null);
+        input.put_property("ResultingSnapshot", resulting_snapshot_path).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingSnapshot: {error}").into()))?;
         let result = self
             .connection
             .exec_method(&self.path, "CreateSnapshot", Some(&input))
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("CreateSnapshot WMI call failed: {error}").into()))?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot returned no output".into()))?
             .into_desr::<MethodResult>()?;
-        if result.return_value != 0 && result.return_value != 4096 {
-            let return_value_message =
-                match result.return_value {
-                    1 => "Not supported",
-                    2 => "Failed",
-                    3 => "Timeout",
-                    4 => "Invalid parameter",
-                    5 => "Invalid state",
-                    6 => "Invalid type",
-                    7..=4095 => "DMTF reserved",
-                    4097..=32767 => "Method reserved",
-                    32768..=65535 => "Vendor specific",
-                    _ => "Unknown",
-                };
-            return Err(wmi::WMIError::ConvertVariantError(format!("CreateSnapshot failed: {return_value_message} ({})", result.return_value).into()));
+        match result.return_value {
+            0 => {
+                let path = result
+                    .resulting_snapshot
+                    .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot returned no resulting snapshot".into()))?;
+                self.connection.get_object(path)?.into_desr::<VirtualSystemSettingData>()
+            },
+            4096 => {
+                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot returned no job".into()))?;
+                let job = Job::wait(&self.connection, path, &mut job_events).await?;
+                job.get_related("Msvm_VirtualSystemSettingData").await
+            },
+            return_value => {
+                let return_value_message = method_return_value_description(return_value);
+                Err(wmi::WMIError::ConvertVariantError(format!("CreateSnapshot failed: {return_value_message} ({return_value})").into()))
+            },
         }
-        let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateSnapshot returned no job".into()))?;
-        let job = Job::wait(&self.connection, path, &mut job_events).await?;
-        log::debug!("{job:#}");
-        job.get_related("Msvm_VirtualSystemSettingData").await
     }
 
     pub(crate) async fn destroy(&self, affected_snapshot: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
-        let destroy_snapshot_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemSnapshotService")?
-            .get_method("DestroySnapshot")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshot method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let destroy_snapshot_method_class = self.method("DestroySnapshot")?;
         let input = destroy_snapshot_method_class.spawn_instance()?;
-        input
-            .put_property("AffectedSnapshot", affected_snapshot.path.as_str())
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSnapshot: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "DestroySnapshot", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshot returned no output".into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
-            0 => Ok(JobState::Completed),
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshot returned no job".into()))?;
-                Ok(Job::wait(&self.connection, path, &mut job_events).await?.job_state)
-            }
-            return_value => {
-                let description = match return_value {
-                    1 => "Not supported",
-                    2 => "Failed",
-                    3 => "Timeout",
-                    4 => "Invalid parameter",
-                    5 => "Invalid state",
-                    6 => "Invalid type",
-                    7..=4095 => "DMTF reserved",
-                    4097..=32767 => "Method reserved",
-                    32768..=65535 => "Vendor specific",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("DestroySnapshot failed: {description} ({return_value})").into()))
-            }
-        }
+        input.put_property("AffectedSnapshot", affected_snapshot.path.as_str()).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSnapshot: {error}").into()))?;
+        Job::execute_method(&self.connection, &self.path, "DestroySnapshot", &input).await
     }
 
     pub(crate) async fn destroy_tree(&self, snapshot_setting_data: VirtualSystemSettingData) -> wmi::WMIResult<JobState> {
-        let destroy_snapshot_tree_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemSnapshotService")?
-            .get_method("DestroySnapshotTree")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree method signature not found".into()))?;
-        log::debug!("DestroySnapshotTree requested for snapshot instance: {}", snapshot_setting_data.path.as_str());
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let destroy_snapshot_tree_method_class = self.method("DestroySnapshotTree")?;
         let input = destroy_snapshot_tree_method_class.spawn_instance()?;
         input
             .put_property("SnapshotSettingData", snapshot_setting_data.path.as_str())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set SnapshotSettingData: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "DestroySnapshotTree", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree returned no output".into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
-            0 => Ok(JobState::Completed),
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroySnapshotTree returned no job".into()))?;
-                log::debug!("Waiting for DestroySnapshotTree job: {path}");
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                log::debug!("DestroySnapshotTree job completed with state: {job_state:?}");
-                Ok(job_state)
-            },
-            return_value => {
-                let description = match return_value {
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("DestroySnapshotTree failed: {description} ({return_value})").into()))
-            }
-        }
+        Job::execute_method(&self.connection, &self.path, "DestroySnapshotTree", &input).await
     }
 
-    pub(crate) async fn convert_to_reference_point(&self, affectd_snapshot: VirtualSystemSettingData, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, resulting_reference_point: Option<VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
-        let convert_to_reference_point_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemSnapshotService")?
-            .get_method("ConvertToReferencePoint")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
-        let reference_point_settings_xml_string = reference_point_settings.as_ref().map(|rps| rps.to_xml())
-            .transpose()
-            .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
-            .unwrap_or_default();
+    pub(crate) async fn convert_to_reference_point(&self, affected_snapshot: VirtualSystemSettingData, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, resulting_reference_point: Option<VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
+        let convert_to_reference_point_method_class = self.method("ConvertToReferencePoint")?;
+        let mut job_events = self.connection.async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let reference_point_settings_xml_string = reference_point_settings.as_ref().map(|rps| rps.to_xml()).transpose().map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?.unwrap_or_default();
         let input = convert_to_reference_point_method_class.spawn_instance()?;
-        input
-            .put_property("AffectedSnapshot", affectd_snapshot.path.as_str())
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSnapshot: {error}").into()))?;
+        input.put_property("AffectedSnapshot", affected_snapshot.path.as_str()).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSnapshot: {error}").into()))?;
         input
             .put_property("ReferencePointSettings", reference_point_settings_xml_string)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ReferencePointSettings: {error}").into()))?;
@@ -394,26 +212,23 @@ impl VirtualSystemSnapshotService {
             .exec_method(&self.path, "ConvertToReferencePoint", Some(&input))?
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint returned no output".into()))?
             .into_desr::<MethodResult>()?;
-        if result.return_value != 0 && result.return_value != 4096 {
-            let x =
-                match result.return_value {
-                    1 => "Not supported",
-                    2 => "Failed",
-                    3 => "Timeout",
-                    4 => "Invalid parameter",
-                    5 => "Invalid state",
-                    6 => "Invalid type",
-                    7..=4095 => "DMTF reserved",
-                    4097..=32767 => "Method reserved",
-                    32768..=65535 => "Vendor specific",
-                    _ => "Unknown",
-                };
-            return Err(wmi::WMIError::ConvertVariantError(format!("ConvertToReferencePoint failed: {x} ({})", result.return_value).into()));
+        match result.return_value {
+            0 => {
+                let path = result
+                    .resulting_reference_point
+                    .ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint returned no resulting reference point".into()))?;
+                self.connection.get_object(path)?.into_desr::<VirtualSystemReferencePoint>()
+            },
+            4096 => {
+                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint returned no job".into()))?;
+                let job = Job::wait(&self.connection, path, &mut job_events).await?;
+                job.get_related("Msvm_VirtualSystemReferencePoint").await
+            },
+            return_value => {
+                let description = method_return_value_description(return_value);
+                Err(wmi::WMIError::ConvertVariantError(format!("ConvertToReferencePoint failed: {description} ({return_value})").into()))
+            },
         }
-        let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ConvertToReferencePoint returned no job".into()))?;
-        let job = Job::wait(&self.connection, path, &mut job_events).await?;
-        let reference_point = job.get_related("Msvm_VirtualSystemReferencePoint").await?;
-        Ok(reference_point)
     }
 }
 
@@ -468,10 +283,7 @@ mod tests {
             .await
             .expect("snapshot should be created");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
-        let job_state = service
-            .destroy(virtual_system_setting_data)
-            .await
-            .expect("snapshot should be destroyed");
+        let job_state = service.destroy(virtual_system_setting_data).await.expect("snapshot should be destroyed");
         assert!(matches!(job_state, JobState::Completed));
     }
 

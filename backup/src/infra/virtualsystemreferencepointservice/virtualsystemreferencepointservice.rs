@@ -1,7 +1,6 @@
-
-use std::path::PathBuf;
-use super::{ReferencePointTypeIn, VirtualSystemReferencePointServiceOut};
 use super::super::*;
+use super::VirtualSystemReferencePointServiceOut;
+use std::path::PathBuf;
 
 pub(crate) struct VirtualSystemReferencePointService {
     connection: wmi::WMIConnection,
@@ -9,6 +8,13 @@ pub(crate) struct VirtualSystemReferencePointService {
 }
 
 impl VirtualSystemReferencePointService {
+    fn method(&self, method_name: &str) -> wmi::WMIResult<wmi::IWbemClassWrapper> {
+        self.connection
+            .get_object("Msvm_VirtualSystemReferencePointService")?
+            .get_method(method_name)?
+            .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("{method_name} method signature not found").into()))
+    }
+
     pub(crate) fn new(connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let service = connection
             .raw_query::<VirtualSystemReferencePointServiceOut>("SELECT * FROM Msvm_VirtualSystemReferencePointService WHERE __CLASS = 'Msvm_VirtualSystemReferencePointService'")?
@@ -16,317 +22,85 @@ impl VirtualSystemReferencePointService {
             .next()
             .ok_or_else(|| wmi::WMIError::ConvertVariantError("Virtual system reference point service not found".into()))?;
         if service.class_name != "Msvm_VirtualSystemReferencePointService" {
-            return Err(wmi::WMIError::ConvertVariantError(
-                format!("Unexpected reference point service class: {}", service.class_name).into(),
-            ));
+            return Err(wmi::WMIError::ConvertVariantError(format!("Unexpected reference point service class: {}", service.class_name).into()));
         }
-        log::debug!(
-            "Resolved reference point service class {} at {}",
-            service.class_name,
-            service.path,
-        );
         Ok(Self { connection, path: service.path })
     }
 
     pub(crate) async fn create(&self, affected_system: &VirtualMachine, reference_point_settings: Option<VirtualSystemReferencePointSettingDataIn>, reference_point_type: super::ReferencePointTypeIn, resulting_reference_point: Option<&VirtualSystemReferencePoint>) -> wmi::WMIResult<VirtualSystemReferencePoint> {
-        log::debug!(
-            "Creating reference point for system {}; type: {:?}; has settings: {}; resulting reference point: {}",
-            affected_system.path,
-            reference_point_type,
-            reference_point_settings.is_some(),
-            resulting_reference_point.is_some(),
-        );
-        let create_reference_point_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemReferencePointService")?
-            .get_method("CreateReferencePoint")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
-        let reference_point_setting_data_xml_string = reference_point_settings.as_ref().map(|rps| rps.to_xml())
-            .transpose()
-            .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?
-            .unwrap_or_default();
+        let method = self.method("CreateReferencePoint")?;
+        let mut job_events = self.connection.async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
+        let reference_point_setting_data_xml_string = reference_point_settings.as_ref().map(|rps| rps.to_xml()).transpose().map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?.unwrap_or_default();
         let reference_point_type_value = u16::from(&reference_point_type);
-        log::trace!(
-            "CreateReferencePoint request: settings XML: {reference_point_setting_data_xml_string:?}; type value: {reference_point_type_value}; resulting reference point: {:?}",
-            resulting_reference_point.map(|reference_point| reference_point.path.as_str()),
-        );
-        let input = create_reference_point_method_class.spawn_instance()?;
-        input
-            .put_property("AffectedSystem", affected_system.path.as_str())
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSystem: {error}").into()))?;
+        let input = method.spawn_instance()?;
+        input.put_property("AffectedSystem", affected_system.path.as_str()).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedSystem: {error}").into()))?;
         input
             .put_property("ReferencePointSettings", reference_point_setting_data_xml_string)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ReferencePointSettings: {error}").into()))?;
-        input
-            .put_property("ReferencePointType", reference_point_type_value)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ReferencePointType: {error}").into()))?;
-        let resulting_reference_point_path = resulting_reference_point
-            .as_ref()
-            .map(|reference_point| wmi::Variant::String(reference_point.path.as_str().to_owned()))
-            .unwrap_or(wmi::Variant::Null);
+        input.put_property("ReferencePointType", reference_point_type_value).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ReferencePointType: {error}").into()))?;
+        let resulting_reference_point_path = resulting_reference_point.as_ref().map(|reference_point| wmi::Variant::String(reference_point.path.as_str().to_owned())).unwrap_or(wmi::Variant::Null);
         input
             .put_property("ResultingReferencePoint", resulting_reference_point_path)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ResultingReferencePoint: {error}").into()))?;
-        if log::log_enabled!(log::Level::Trace) {
-            match input.list_properties() {
-                Ok(properties) => {
-                    log::trace!("CreateReferencePoint input properties: {properties:?}");
-                    for property in properties {
-                        match input.get_property(&property) {
-                            Ok(value) => log::trace!("CreateReferencePoint input {property} = {value:?}"),
-                            Err(error) => log::trace!("Failed to read CreateReferencePoint input {property}: {error}"),
-                        }
-                    }
-                },
-                Err(error) => log::trace!("Failed to enumerate CreateReferencePoint input properties: {error}"),
-            }
-        }
-        log::trace!(
-            "Executing CreateReferencePoint on service path: {}; affected system: {}",
-            self.path,
-            affected_system.path,
-        );
-        let method_started_at = std::time::Instant::now();
         let output = match self.connection.exec_method(&self.path, "CreateReferencePoint", Some(&input)) {
             Ok(Some(output)) => output,
-            Ok(None) => {
-                log::error!(
-                    "CreateReferencePoint returned no output after {:?}",
-                    method_started_at.elapsed(),
-                );
-                return Err(wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no output".into()));
-            },
-            Err(error) => {
-                log::error!(
-                    "CreateReferencePoint WMI call failed after {:?}: {error}",
-                    method_started_at.elapsed(),
-                );
-                return Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint WMI call failed: {error}").into()));
-            },
+            Ok(None) => return Err(wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no output".into())),
+            Err(error) => return Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint WMI call failed: {error}").into())),
         };
-        log::debug!("CreateReferencePoint WMI call completed in {:?}", method_started_at.elapsed());
-        if log::log_enabled!(log::Level::Trace) {
-            match output.list_properties() {
-                Ok(properties) => {
-                    log::trace!("CreateReferencePoint output properties: {properties:?}");
-                    for property in properties {
-                        match output.get_property(&property) {
-                            Ok(value) => log::trace!("CreateReferencePoint output {property} = {value:?}"),
-                            Err(error) => log::trace!("Failed to read CreateReferencePoint output {property}: {error}"),
-                        }
-                    }
-                },
-                Err(error) => log::trace!("Failed to enumerate CreateReferencePoint output properties: {error}"),
-            }
-        }
         let result = output.into_desr::<MethodResult>()?;
-        log::debug!(
-            "CreateReferencePoint returned value: {}; job: {:?}",
-            result.return_value,
-            result.job,
-        );
-        if result.return_value != 0 && result.return_value != 4096 {
-            let return_value_message =
-                match result.return_value {
-                    1 => "Not supported",
-                    2 => "Failed",
-                    3 => "Timeout",
-                    4 => "Invalid parameter",
-                    5 => "Invalid state",
-                    6 => "Invalid type",
-                    7..=4095 => "DMTF reserved",
-                    4097..=32767 => "Method reserved",
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    32779..=65535 => "Vendor specific",
-                    _ => "Unknown",
-                };
-            return Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint failed: {return_value_message} ({})", result.return_value).into()));
+        match result.return_value {
+            0 => {
+                let path = result
+                    .resulting_reference_point
+                    .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no resulting reference point".into()))?;
+                self.connection.get_object(path)?.into_desr::<VirtualSystemReferencePoint>()
+            },
+            4096 => {
+                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no job".into()))?;
+                let job = Job::wait(&self.connection, path, &mut job_events).await?;
+                job.get_related("Msvm_VirtualSystemReferencePoint").await
+            },
+            return_value => {
+                let return_value_message = method_return_value_description(return_value);
+                Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint failed: {return_value_message} ({return_value})").into()))
+            },
         }
-        let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no job".into()))?;
-        log::debug!("Waiting for CreateReferencePoint job: {path}");
-        let job = Job::wait(&self.connection, path, &mut job_events).await?;
-        log::debug!("CreateReferencePoint job completed with state: {:?}", job.job_state);
-        log::debug!("CreateReferencePoint job details:\n{job:#}");
-        log::debug!("Resolving reference point related to completed CreateReferencePoint job");
-        let reference_point: VirtualSystemReferencePoint = job.get_related("Msvm_VirtualSystemReferencePoint").await?;
-        log::debug!("CreateReferencePoint resolved reference point: {}", reference_point.path);
-        Ok(reference_point)
     }
 
     pub(crate) async fn export(&self, reference_point: &VirtualSystemReferencePoint, export_directory: PathBuf, export_setting_data: VirtualSystemReferencePointSettingDataIn) -> wmi::WMIResult<JobState> {
-        let export_reference_point_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemReferencePointService")?
-            .get_method("ExportReferencePoint")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportReferencePoint method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
-        let reference_point_setting_data_xml_string = export_setting_data
-            .to_xml()
-            .map_err(|e| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {e}").into()))?;
-        let input = export_reference_point_method_class.spawn_instance()?;
+        let method = self.method("ExportReferencePoint")?;
+        let input = method.spawn_instance()?;
+        let setting_data = export_setting_data.to_xml().map_err(|error| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {error}").into()))?;
         input
             .put_property("AffectedReferencePoint", reference_point.path.as_str().to_owned())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedReferencePoint: {error}").into()))?;
         input
             .put_property("ExportDirectory", export_directory.to_str().ok_or_else(|| wmi::WMIError::ConvertVariantError("Invalid export directory path".into()))?)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportDirectory: {error}").into()))?;
-        input
-            .put_property("ExportSettingData", reference_point_setting_data_xml_string)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportSettingData: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "ExportReferencePoint", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportReferencePoint returned no output".into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
-            0 => {
-                log::debug!("ExportReferencePoint completed synchronously");
-                return Ok(JobState::Completed);
-            },
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("ExportReferencePoint returned no job".into()))?;
-                log::debug!("Waiting for ExportReferencePoint job: {path}");
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                log::debug!("ExportReferencePoint job completed with state: {job_state:?}");
-                return Ok(job_state);
-            },
-            return_value => {
-                let description = match return_value {
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("DestroyReferencePoint failed: {description} ({return_value})").into()))
-            }
-        }
+        input.put_property("ExportSettingData", setting_data).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportSettingData: {error}").into()))?;
+        Job::execute_method(&self.connection, &self.path, "ExportReferencePoint", &input).await
     }
 
-    pub(crate) async fn destroy(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
-        let destroy_reference_point_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemReferencePointService")?
-            .get_method("DestroyReferencePoint")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroyReferencePoint method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
-        let input = destroy_reference_point_method_class.spawn_instance()?;
+    pub(crate) async fn destroy(&self, affected_reference_point: &VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
+        let method = self.method("DestroyReferencePoint")?;
+        let input = method.spawn_instance()?;
         input
             .put_property("AffectedReferencePoint", affected_reference_point.path.as_str().to_owned())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedReferencePoint: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "DestroyReferencePoint", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroyReferencePoint returned no output".into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
-            0 => {
-                log::debug!("DestroyReferencePoint completed synchronously");
-                return Ok(JobState::Completed);
-            },
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("DestroyReferencePoint returned no job".into()))?;
-                log::debug!("Waiting for DestroyReferencePoint job: {path}");
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                log::debug!("DestroyReferencePoint job completed with state: {job_state:?}");
-                return Ok(job_state);
-            },
-            return_value => {
-                let description = match return_value {
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("DestroyReferencePoint failed: {description} ({return_value})").into()))
-            }
-        }
+        Job::execute_method(&self.connection, &self.path, "DestroyReferencePoint", &input).await
     }
 
-    pub(crate) async fn remove_associated_data(&self, affected_reference_point: VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
-        let remove_associated_data_method_class = self
-            .connection
-            .get_object("Msvm_VirtualSystemReferencePointService")?
-            .get_method("RemoveAssociatedData")?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("RemoveAssociatedData method signature not found".into()))?;
-        let mut job_events = self
-            .connection
-            .async_raw_notification::<ConcreteJobModificationEvent>("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob'")?;
-        let input = remove_associated_data_method_class.spawn_instance()?;
+    pub(crate) async fn remove_associated_data(&self, affected_reference_point: &VirtualSystemReferencePoint) -> wmi::WMIResult<JobState> {
+        let method = self.method("RemoveAssociatedData")?;
+        let input = method.spawn_instance()?;
         input
             .put_property("AffectedReferencePoint", affected_reference_point.path.as_str().to_owned())
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set AffectedReferencePoint: {error}").into()))?;
-        let result = self
-            .connection
-            .exec_method(&self.path, "RemoveAssociatedData", Some(&input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError("RemoveAssociatedData returned no output".into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
-            0 => {
-                log::debug!("RemoveAssociatedData completed synchronously");
-                return Ok(JobState::Completed);
-            },
-            4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("RemoveAssociatedData returned no job".into()))?;
-                log::debug!("Waiting for RemoveAssociatedData job: {path}");
-                let job_state = Job::wait(&self.connection, path, &mut job_events).await?.job_state;
-                log::debug!("RemoveAssociatedData job completed with state: {job_state:?}");
-                return Ok(job_state);
-            },
-            return_value => {
-                let description = match return_value {
-                    32768 => "Failed",
-                    32769 => "Access denied",
-                    32770 => "Not supported",
-                    32771 => "Status is unknown",
-                    32772 => "Timeout",
-                    32773 => "Invalid parameter",
-                    32774 => "System is in use",
-                    32775 => "Invalid state for this operation",
-                    32776 => "Incorrect data type",
-                    32777 => "System is not available",
-                    32778 => "Out of memory",
-                    _ => "Unknown",
-                };
-                Err(wmi::WMIError::ConvertVariantError(format!("RemoveAssociatedData failed: {description} ({return_value})").into()))
-            }
-        }
+        Job::execute_method(&self.connection, &self.path, "RemoveAssociatedData", &input).await
     }
 
-    pub(crate) async fn import_metadata(&self, affected_system: &VirtualMachine, config_file_path: PathBuf, runtime_state_file_path: PathBuf) -> wmi::WMIResult<VirtualMachine> {
-        unimplemented!()
+    pub(crate) async fn import_metadata(&self, _affected_system: &VirtualMachine, _config_file_path: PathBuf, _runtime_state_file_path: PathBuf) -> wmi::WMIResult<VirtualMachine> {
+        Err(wmi::WMIError::ConvertVariantError("ImportMetadata is not implemented".into()))
     }
 }
 
@@ -350,22 +124,17 @@ mod tests {
     fn reference_point_settings() -> VirtualSystemReferencePointSettingDataIn {
         VirtualSystemReferencePointSettingDataIn {
             classname: "Msvm_VirtualSystemReferencePointSettingData",
-            properties: vec![
-                Property {
-                    name: "ConsistencyLevel".into(),
-                    cim_type: "uint8".into(),
-                    value: u8::from(ConsistencyLevel::Crash).to_string(),
-                },
-            ],
+            properties: vec![Property {
+                name: "ConsistencyLevel".into(),
+                cim_type: "uint8".into(),
+                value: u8::from(ConsistencyLevel::Crash).to_string(),
+            }],
         }
     }
 
     async fn create_reference_point(service: &VirtualSystemReferencePointService, connection: &wmi::WMIConnection) -> VirtualSystemReferencePoint {
         log::info!("Creating reference point");
-        let reference_point = service
-            .create(&configured_vm(connection).await, Some(reference_point_settings()), ReferencePointTypeIn::Rct, None)
-            .await
-            .expect("reference point should be created");
+        let reference_point = service.create(&configured_vm(connection).await, Some(reference_point_settings()), ReferencePointTypeIn::Rct, None).await.expect("reference point should be created");
         log::info!("Reference point created: {}", reference_point.path.as_str());
         log::info!("Waiting five seconds before the next reference-point operation");
         tokio::time::sleep(std::time::Duration::from_secs(5)).await;
@@ -374,7 +143,8 @@ mod tests {
 
     #[tokio::test]
     #[ignore = "requires a configured Hyper-V VM"]
-    async fn creates_reference_point_for_configured_vm() {  // TODO: This always returns Not supported
+    async fn creates_reference_point_for_configured_vm() {
+        // TODO: This always returns Not supported
         let _ = env_logger::try_init();
         log::info!("Starting creates_reference_point_for_configured_vm");
         let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
@@ -383,7 +153,7 @@ mod tests {
         log::info!("Resolved Hyper-V virtual system reference-point service");
         let reference_point = create_reference_point(&service, &connection).await;
         log::info!("Destroying reference point created by create test");
-        let job_state = service.destroy(reference_point).await.expect("reference point should be destroyed");
+        let job_state = service.destroy(&reference_point).await.expect("reference point should be destroyed");
         log::info!("Reference-point destroy returned state: {job_state:?}");
         assert!(matches!(job_state, JobState::Completed));
         log::info!("Finished creates_reference_point_for_configured_vm");
@@ -398,7 +168,7 @@ mod tests {
         let service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
         let reference_point = create_reference_point(&service, &connection).await;
         log::info!("Destroying reference point: {}", reference_point.path.as_str());
-        let job_state = service.destroy(reference_point).await.expect("reference point should be destroyed");
+        let job_state = service.destroy(&reference_point).await.expect("reference point should be destroyed");
         assert!(matches!(job_state, JobState::Completed));
         log::info!("Finished destroys_reference_point_for_configured_vm");
     }
@@ -412,12 +182,9 @@ mod tests {
         let service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
         let reference_point = create_reference_point(&service, &connection).await;
         log::info!("Removing associated data from reference point: {}", reference_point.path.as_str());
-        let job_state = service
-            .remove_associated_data(reference_point.clone())
-            .await
-            .expect("associated data should be removed");
+        let job_state = service.remove_associated_data(&reference_point).await.expect("associated data should be removed");
         assert!(matches!(job_state, JobState::Completed));
-        let job_state = service.destroy(reference_point).await.expect("reference point should be destroyed");
+        let job_state = service.destroy(&reference_point).await.expect("reference point should be destroyed");
         assert!(matches!(job_state, JobState::Completed));
         log::info!("Finished removes_associated_data_for_configured_vm");
     }

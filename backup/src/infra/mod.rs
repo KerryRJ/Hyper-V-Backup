@@ -91,7 +91,7 @@ use enhancedsessiontransporttype::EnhancedSessionTransportType;
 pub(crate) use healthstate::HealthState;
 use highmmiogapsize::HighMmioGapSize;
 use instanceid::InstanceId;
-use job::Job;
+use job::{method_return_value_description, Job};
 use jobout::JobOut;
 use jobstate::JobState;
 use jobtype::JobType;

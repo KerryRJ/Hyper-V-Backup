@@ -50,20 +50,18 @@ impl VirtualSystemReferencePointService {
         let result = output.into_desr::<MethodResult>()?;
         match result.return_value {
             0 => {
-                let path = result
-                    .resulting_reference_point
-                    .ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no resulting reference point".into()))?;
+                let path = result.resulting_reference_point.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no resulting reference point".into()))?;
                 self.connection.get_object(path)?.into_desr::<VirtualSystemReferencePoint>()
-            },
+            }
             4096 => {
                 let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError("CreateReferencePoint returned no job".into()))?;
                 let job = Job::wait(&self.connection, path, &mut job_events).await?;
                 job.get_related("Msvm_VirtualSystemReferencePoint").await
-            },
+            }
             return_value => {
                 let return_value_message = method_return_value_description(return_value);
                 Err(wmi::WMIError::ConvertVariantError(format!("CreateReferencePoint failed: {return_value_message} ({return_value})").into()))
-            },
+            }
         }
     }
 

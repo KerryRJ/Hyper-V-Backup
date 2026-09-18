@@ -82,6 +82,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "env_logger",
+ "fastcdc",
  "futures",
  "log",
  "quick-xml",
@@ -268,6 +269,12 @@ dependencies = [
  "jiff",
  "log",
 ]
+
+[[package]]
+name = "fastcdc"
+version = "5.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0431c3132902a1bed6fe77dcfa5d03844e083f263b81288246a2d43dd7d4b2ad"
 
 [[package]]
 name = "find-msvc-tools"

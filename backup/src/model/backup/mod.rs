@@ -18,4 +18,3 @@ pub use backupstate::BackupState;
 pub use backupstatus::BackupStatus;
 pub use referencepointbackupoptions::ReferencePointBackupOptions;
 pub(crate) use statusstore::StatusStore;
-

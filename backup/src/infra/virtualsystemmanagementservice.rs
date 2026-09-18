@@ -12,23 +12,23 @@ pub(crate) struct VirtualSystemManagementService {
     description: String,
     detailed_status: Option<DetailedStatus>,
     element_name: String,
-    enabled_default: EnabledState,   // Always 2 = Enabled
-    enabled_state: EnabledState, // Always 2 = Enabled
-    health_state: HealthState,   // Always set to 5 = Ok but is a range 0 to 30 where 30 is completely non-functional
+    enabled_default: EnabledState, // Always 2 = Enabled
+    enabled_state: EnabledState,   // Always 2 = Enabled
+    health_state: HealthState,     // Always set to 5 = Ok but is a range 0 to 30 where 30 is completely non-functional
     instance_id: Option<InstanceId>,
     install_date: chrono::DateTime<chrono::Utc>,
     name: String,
     operating_status: Option<OperatingStatus>,
-    operational_status: Vec<OperationalStatus>,  // Always set to 2 = OK
+    operational_status: Vec<OperationalStatus>, // Always set to 2 = OK
     other_enabled_state: Option<String>,
     path: String,
-    primary_owner_contact: Option<String>,    // Always set to null
-    primary_owner_name: Option<String>, // Always set to null
+    primary_owner_contact: Option<String>, // Always set to null
+    primary_owner_name: Option<String>,    // Always set to null
     primary_status: Option<PrimaryStatus>,
     requested_state: Option<RequestedState>, // Always set to 12 = Not Applicable
-    start_mode: Option<String>,  // Always set to null
+    start_mode: Option<String>,              // Always set to null
     started: bool,
-    status: Option<String>,  // Not used
+    status: Option<String>, // Not used
     status_descriptions: Vec<String>,
     system_creation_class_name: String,
     system_name: String,
@@ -116,7 +116,7 @@ impl VirtualSystemManagementService {
             time_of_last_state_change: output.TimeOfLastStateChange.0.with_timezone(&chrono::Utc),
             transitioning_to_state: output.TransitioningToState.map(TryInto::try_into).transpose().map_err(serde::de::Error::custom)?,
         })
-    }    
+    }
 
     pub(crate) async fn export_system_definition(&self, computer_system: VirtualMachine, export_directory: PathBuf, export_setting_data: Option<VirtualSystemExportSettingDataIn>) -> wmi::WMIResult<JobState> {
         let export_system_definition_method_class = self
@@ -131,15 +131,11 @@ impl VirtualSystemManagementService {
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("XML Gen Failed: {error}").into()))?
             .unwrap_or_default();
         let input = export_system_definition_method_class.spawn_instance()?;
-        input
-            .put_property("ComputerSystem", computer_system.path.as_str())
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ComputerSystem: {error}").into()))?;
+        input.put_property("ComputerSystem", computer_system.path.as_str()).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ComputerSystem: {error}").into()))?;
         input
             .put_property("ExportDirectory", export_directory.to_str().ok_or_else(|| wmi::WMIError::ConvertVariantError("Invalid export directory path".into()))?)
             .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportDirectory: {error}").into()))?;
-        input
-            .put_property("ExportSettingData", export_setting_data_xml_string)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportSettingData: {error}").into()))?;
+        input.put_property("ExportSettingData", export_setting_data_xml_string).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to set ExportSettingData: {error}").into()))?;
         Job::execute_method(&self.connection, &self.path, "ExportSystemDefinition", &input).await
     }
 }

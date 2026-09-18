@@ -2,9 +2,9 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) enum AutomaticStartupAction {
-    None,   // 2
-    RestartIfPreviouslyActive,  // 3
-    AlwaysStartup,  // 4
+    None,                      // 2
+    RestartIfPreviouslyActive, // 3
+    AlwaysStartup,             // 4
     DMTF(u16),
 }
 

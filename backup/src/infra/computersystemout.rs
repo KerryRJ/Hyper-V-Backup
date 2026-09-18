@@ -46,7 +46,7 @@ pub(crate) struct ComputerSystemOut {
     pub(crate) StatusDescriptions: Vec<String>,
     pub(crate) TimeOfLastConfigurationChange: WMIDateTime,
     pub(crate) TimeOfLastStateChange: WMIDateTime,
-    pub(crate) TransitioningToState: Option<u16>
+    pub(crate) TransitioningToState: Option<u16>,
 }
 
 impl std::fmt::Display for ComputerSystemOut {

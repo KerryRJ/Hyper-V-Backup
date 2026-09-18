@@ -9,7 +9,7 @@ pub(crate) enum RequestedState {
     Offline,
     Test,
     Reboot,
-    Reset, 
+    Reset,
     NotApplicable,
 }
 

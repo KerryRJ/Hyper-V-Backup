@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) enum DebugPortEnabledType {
-    Off, // 0
-    On, // 1
+    Off,            // 0
+    On,             // 1
     OnAutoAssigned, // 2
 }
 

@@ -1,6 +1,6 @@
 #[derive(Debug, Clone)]
 pub(crate) enum AutomaticCriticalErrorAction {
-    None,   // 0
+    None,        // 0
     PauseResume, // 1
 }
 

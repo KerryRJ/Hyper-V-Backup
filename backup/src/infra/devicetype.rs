@@ -2,10 +2,10 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) enum DeviceType {
-    Floppy,   // 0
-    CdRom, // 1
-    IdeHardDisk, // 2
-    PxeBoot, // 3
+    Floppy,        // 0
+    CdRom,         // 1
+    IdeHardDisk,   // 2
+    PxeBoot,       // 3
     ScsiHardDrive, // 4
     Reserved(u16), // 5
 }

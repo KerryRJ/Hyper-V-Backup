@@ -9,39 +9,39 @@ pub struct VirtualMachine {
     caption: String,
     communication_status: Option<CommunicationStatus>,
     connection: wmi::WMIConnection,
-    creation_class_name: String,    // Always set to "Msvm_ComputerSystem"
-    dedicated: Vec<Dedicated>,  // Always set to NotDedicated = 0
-    description: String,    // Will be "Microsoft Virtual Computer System" or "Microsoft Hosting Computer System"
+    creation_class_name: String,             // Always set to "Msvm_ComputerSystem"
+    dedicated: Vec<Dedicated>,               // Always set to NotDedicated = 0
+    description: String,                     // Will be "Microsoft Virtual Computer System" or "Microsoft Hosting Computer System"
     detailed_status: Option<DetailedStatus>, // Complements PrimaryStatus
     pub(crate) element_name: String,
     enabled_default: EnabledDefault, // Default Enabled = 2 for a physical computer
-    enabled_state: EnabledState,    // 2 is only for physical computer. There is no default for a VM
+    enabled_state: EnabledState,     // 2 is only for physical computer. There is no default for a VM
     enhanced_session_mode_state: EnhancedSessionModeState,
-    health_state: HealthState, // Default Ok = 5
-    identifying_descriptions: Vec<String>,  // Always set to null
+    health_state: HealthState,             // Default Ok = 5
+    identifying_descriptions: Vec<String>, // Always set to null
     install_date: chrono::DateTime<chrono::Utc>,
     instance_id: Option<String>,
     last_successful_backup_time: Option<chrono::DateTime<chrono::Utc>>,
     pub(crate) name: VirtualMachineId,
-    name_format: Option<String>,    // Always set to null
-    number_of_numa_nodes: u16,  // Set to null for the management OS
-    on_time: Duration,  // From OnTimeInMilliseconds
+    name_format: Option<String>,               // Always set to null
+    number_of_numa_nodes: u16,                 // Set to null for the management OS
+    on_time: Duration,                         // From OnTimeInMilliseconds
     operating_status: Option<OperatingStatus>, // Null means not implemented
     operational_status: OperationalStatus,
-    other_dedicated_descriptions: Vec<String>,  // Always set to null
-    other_enabled_state: Option<String>,    // Must be null when EnabledState is not Other. Always set to null
-    other_identifying_info: Vec<String>,    // Always set to null
+    other_dedicated_descriptions: Vec<String>, // Always set to null
+    other_enabled_state: Option<String>,       // Must be null when EnabledState is not Other. Always set to null
+    other_identifying_info: Vec<String>,       // Always set to null
     pub(crate) path: Path,
     power_management_capabilities: Vec<PowerManagementCapabilities>, // Not used
-    primary_owner_contact: Option<String>,  // Always set to null
-    primary_owner_name: Option<String>, // Always set to null
-    primary_status: Option<PrimaryStatus>,  // Used in conjunction with DetailedStatus. Null indicates not implemented.
+    primary_owner_contact: Option<String>,                           // Always set to null
+    primary_owner_name: Option<String>,                              // Always set to null
+    primary_status: Option<PrimaryStatus>,                           // Used in conjunction with DetailedStatus. Null indicates not implemented.
     process_id: Option<u32>,
     replication_mode: ReplicationMode,
     requested_state: RequestedState,
     reset_capability: ResetCapability, // Always set to Other = 1
-    roles: Vec<String>, // Always set to null
-    status: String, // Not used
+    roles: Vec<String>,                // Always set to null
+    status: String,                    // Not used
     status_descriptions: Vec<String>,
     time_of_last_configuration_change: chrono::DateTime<chrono::Utc>,
     time_of_last_state_change: chrono::DateTime<chrono::Utc>,
@@ -99,9 +99,7 @@ impl std::fmt::Display for VirtualMachine {
 impl VirtualMachine {
     pub(crate) fn from(computer_system: ComputerSystemOut, connection: wmi::WMIConnection) -> wmi::WMIResult<Self> {
         let path = computer_system.path.clone();
-        let name = uuid::Uuid::parse_str(&computer_system.Name)
-            .map(VirtualMachineId::from)
-            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid virtual machine name: {error}").into()))?;
+        let name = uuid::Uuid::parse_str(&computer_system.Name).map(VirtualMachineId::from).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Invalid virtual machine name: {error}").into()))?;
         let operational_status: OperationalStatus = computer_system
             .OperationalStatus
             .into_iter()
@@ -157,11 +155,7 @@ impl VirtualMachine {
 
     pub(super) async fn get_snapshots(&self) -> Vec<VirtualSystemSettingData> {
         let query = format!("ASSOCIATORS OF {{{}}} WHERE AssocClass = Msvm_SettingsDefineState", self.path.as_str());
-        self.connection.async_raw_query::<VirtualSystemSettingData>(&query)
-            .await.unwrap_or_default()
-            .into_iter()
-            .filter(VirtualSystemSettingData::is_snapshot)
-            .collect()
+        self.connection.async_raw_query::<VirtualSystemSettingData>(&query).await.unwrap_or_default().into_iter().filter(VirtualSystemSettingData::is_snapshot).collect()
     }
 
     pub(super) async fn get_reference_points(&self) -> Vec<VirtualSystemReferencePoint> {

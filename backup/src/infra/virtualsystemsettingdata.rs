@@ -1,73 +1,71 @@
 use std::{fmt, path::PathBuf};
-
 use serde::{Deserialize, Deserializer};
 use uuid::Uuid;
-
 use crate::infra::*;
 
 #[derive(Clone)]
 pub(crate) struct VirtualSystemSettingData {
-    pub(crate) path: Path, // r
-    additional_recovery_information: Option<String>,    // rw
-    allow_full_scsi_command_set: Option<bool>,  // rw
-    allow_reduced_fc_redundancy: bool,  // rw
-    architecture: String,   // r
-    automatic_critical_error_action: Option<AutomaticCriticalErrorAction>,   // rw
-    automatic_critical_error_action_timeout: Option<chrono::Duration>,  // rw
-    automatic_recovery_action: Option<AutomaticRecoveryAction>,  // r
-    automatic_shutdown_action: Option<AutomaticShutdownAction>,  // r
-    automatic_snapshots_enabled: bool,  //rw
-    automatic_startup_action: Option<AutomaticStartupAction>,  // r
-    automatic_startup_action_delay: Option<chrono::Duration>,   // r
-    automatic_startup_action_sequence_number: Option<SequenceNumber>,  // r
-    base_board_serial_number: String,  // rw
-    bios_guid: String,  // rw
-    bios_num_lock: bool,  // rw
-    bios_serial_number: String,  // rw
-    boot_order: Vec<DeviceType>,  // rw
-    boot_source_order: Vec<String>,  // rw
-    caption: String,  // r
-    chassis_asset_tag: String,  // rw
-    chassis_serial_number: String,  // rw
-    configuration_data_root: PathBuf,  // r
-    configuration_file: PathBuf,   // r
-    configuration_id: String,    // Uuid // r
-    console_mode: ConsoleMode,  // rw
-    creation_time: chrono::DateTime<chrono::Utc>,   // r
-    debug_channel_id: Option<u32>,  // rw
-    debug_port: Option<TcpPort>, // rw
-    debug_port_enabled: Option<DebugPortEnabledType>, // rw
-    description: String,    // r // "Active settings for the virtual machine" or "Snapshot settings for the virtual machine"
-    element_name: String,   // r
-    enhanced_session_transport_type: EnhancedSessionTransportType,   // rw
-    guest_controlled_cache_types: bool, // rw
-    guest_state_data_root: PathBuf, // r
-    guest_state_file: PathBuf, // r
-    high_mmio_gap_size: HighMmioGapSize, // rw
-    incremental_backup_enabled: Option<bool>, // rw
-    instance_id: InstanceId, // r
-    is_automatic_snapshot: bool, // r
-    is_saved: bool, // r
-    lock_on_disconnect: bool, // rw
-    log_data_root: Option<PathBuf>, // r
-    low_mmio_gap_size: LowMmioGapSize, // rw
-    network_boot_preferred_protocol: NetworkBootProtocol,   // rw
-    notes: Vec<String>, // r
-    parent: Option<String>, // r
-    parent_package: Option<String>, // rw
-    pause_after_boot_failure: bool, // rw
-    recovery_file: Option<PathBuf>, // r
-    secure_boot_enabled: bool,  // rw
-    secure_boot_template_id: String,    // rw
-    snapshot_data_root: Option<PathBuf>, // r
-    suspend_data_root: PathBuf, // r
-    swap_file_data_root: Option<PathBuf>, // r
-    user_snapshot_type: UserSnapshotType,   // rw
-    version: Version,    // r
-    virtual_numa_enabled: bool, // r
-    virtual_system_identifier: VirtualMachineId, // r
-    virtual_system_sub_type: String, // r
-    virtual_system_type: String, // r
+    pub(crate) path: Path,                                                 // r
+    additional_recovery_information: Option<String>,                       // rw
+    allow_full_scsi_command_set: Option<bool>,                             // rw
+    allow_reduced_fc_redundancy: bool,                                     // rw
+    architecture: String,                                                  // r
+    automatic_critical_error_action: Option<AutomaticCriticalErrorAction>, // rw
+    automatic_critical_error_action_timeout: Option<chrono::Duration>,     // rw
+    automatic_recovery_action: Option<AutomaticRecoveryAction>,            // r
+    automatic_shutdown_action: Option<AutomaticShutdownAction>,            // r
+    automatic_snapshots_enabled: bool,                                     //rw
+    automatic_startup_action: Option<AutomaticStartupAction>,              // r
+    automatic_startup_action_delay: Option<chrono::Duration>,              // r
+    automatic_startup_action_sequence_number: Option<SequenceNumber>,      // r
+    base_board_serial_number: String,                                      // rw
+    bios_guid: String,                                                     // rw
+    bios_num_lock: bool,                                                   // rw
+    bios_serial_number: String,                                            // rw
+    boot_order: Vec<DeviceType>,                                           // rw
+    boot_source_order: Vec<String>,                                        // rw
+    caption: String,                                                       // r
+    chassis_asset_tag: String,                                             // rw
+    chassis_serial_number: String,                                         // rw
+    configuration_data_root: PathBuf,                                      // r
+    configuration_file: PathBuf,                                           // r
+    configuration_id: String,                                              // Uuid // r
+    console_mode: ConsoleMode,                                             // rw
+    creation_time: chrono::DateTime<chrono::Utc>,                          // r
+    debug_channel_id: Option<u32>,                                         // rw
+    debug_port: Option<TcpPort>,                                           // rw
+    debug_port_enabled: Option<DebugPortEnabledType>,                      // rw
+    description: String,                                                   // r // "Active settings for the virtual machine" or "Snapshot settings for the virtual machine"
+    element_name: String,                                                  // r
+    enhanced_session_transport_type: EnhancedSessionTransportType,         // rw
+    guest_controlled_cache_types: bool,                                    // rw
+    guest_state_data_root: PathBuf,                                        // r
+    guest_state_file: PathBuf,                                             // r
+    high_mmio_gap_size: HighMmioGapSize,                                   // rw
+    incremental_backup_enabled: Option<bool>,                              // rw
+    instance_id: InstanceId,                                               // r
+    is_automatic_snapshot: bool,                                           // r
+    is_saved: bool,                                                        // r
+    lock_on_disconnect: bool,                                              // rw
+    log_data_root: Option<PathBuf>,                                        // r
+    low_mmio_gap_size: LowMmioGapSize,                                     // rw
+    network_boot_preferred_protocol: NetworkBootProtocol,                  // rw
+    notes: Vec<String>,                                                    // r
+    parent: Option<String>,                                                // r
+    parent_package: Option<String>,                                        // rw
+    pause_after_boot_failure: bool,                                        // rw
+    recovery_file: Option<PathBuf>,                                        // r
+    secure_boot_enabled: bool,                                             // rw
+    secure_boot_template_id: String,                                       // rw
+    snapshot_data_root: Option<PathBuf>,                                   // r
+    suspend_data_root: PathBuf,                                            // r
+    swap_file_data_root: Option<PathBuf>,                                  // r
+    user_snapshot_type: UserSnapshotType,                                  // rw
+    version: Version,                                                      // r
+    virtual_numa_enabled: bool,                                            // r
+    virtual_system_identifier: VirtualMachineId,                           // r
+    virtual_system_sub_type: String,                                       // r
+    virtual_system_type: String,                                           // r
 }
 
 impl fmt::Debug for VirtualSystemSettingData {
@@ -153,7 +151,7 @@ impl<'de> Deserialize<'de> for VirtualSystemSettingData {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: Deserializer<'de>,
-    {        
+    {
         let output = super::VirtualSystemSettingDataOut::deserialize(deserializer)?;
         let automatic_startup_action_delay = output.AutomaticStartupActionDelay.map(|value| chrono::Duration::from_std(value.0)).transpose().map_err(serde::de::Error::custom)?;
         let automatic_critical_error_action_timeout = output.AutomaticCriticalErrorActionTimeout.map(|value| chrono::Duration::from_std(value.0)).transpose().map_err(serde::de::Error::custom)?;
@@ -161,8 +159,7 @@ impl<'de> Deserialize<'de> for VirtualSystemSettingData {
         if virtual_system_identifier.is_nil() {
             return Err(serde::de::Error::custom("VirtualSystemIdentifier cannot be nil"));
         }
-        let virtual_system_identifier = super::VirtualMachineId::new(virtual_system_identifier)
-            .expect("VirtualSystemIdentifier was already checked for nil");
+        let virtual_system_identifier = super::VirtualMachineId::new(virtual_system_identifier).expect("VirtualSystemIdentifier was already checked for nil");
 
         Ok(Self {
             path: output.__Path.into(),
@@ -229,5 +226,3 @@ impl<'de> Deserialize<'de> for VirtualSystemSettingData {
         })
     }
 }
-
-

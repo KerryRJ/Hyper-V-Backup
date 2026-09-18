@@ -7,9 +7,7 @@ impl TryFrom<u32> for TcpPort {
     type Error = &'static str;
 
     fn try_from(value: u32) -> Result<Self, Self::Error> {
-        u16::try_from(value)
-            .map(Self)
-            .map_err(|_| "TCP port must be between 0 and 65535")
+        u16::try_from(value).map(Self).map_err(|_| "TCP port must be between 0 and 65535")
     }
 }
 

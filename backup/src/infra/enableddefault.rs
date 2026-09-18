@@ -1,11 +1,10 @@
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(crate) enum EnabledDefault { 
+pub(crate) enum EnabledDefault {
     Enabled,
     Disabled,
     EnabledButOffline,
-
 }
 
 impl TryFrom<u16> for EnabledDefault {

@@ -2,11 +2,12 @@ use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
 
 use windows::Win32::Foundation;
+use windows::Win32::Storage::FileSystem::{self, CopyFileW, CreateFileW, ReadFile, SetFilePointerEx, WriteFile};
 use windows::Win32::Storage::Vhd;
 use windows::Win32::Storage::Vhd::{GetVirtualDiskInformation, OpenVirtualDisk, QueryChangesVirtualDisk, SetVirtualDiskInformation};
 use windows::core;
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct ChangedRange {
     pub(crate) byte_offset: u64,
     pub(crate) byte_length: u64,
@@ -18,6 +19,51 @@ pub(crate) struct VirtualDisk {
 }
 
 impl VirtualDisk {
+    pub(crate) fn copy_file<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q) -> core::Result<()> {
+        let source = wide_path(source);
+        let destination = wide_path(destination);
+        unsafe { CopyFileW(core::PCWSTR::from_raw(source.as_ptr()), core::PCWSTR::from_raw(destination.as_ptr()), false) }
+    }
+
+    pub(crate) fn copy_ranges<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q, ranges: &[ChangedRange]) -> core::Result<u64> {
+        let source = wide_path(source);
+        let destination = wide_path(destination);
+        let source = unsafe { CreateFileW(core::PCWSTR::from_raw(source.as_ptr()), FileSystem::FILE_GENERIC_READ.0, FileSystem::FILE_SHARE_READ, None, FileSystem::OPEN_EXISTING, FileSystem::FILE_ATTRIBUTE_NORMAL, None)? };
+        let source = FileHandle(source);
+        let destination = unsafe { CreateFileW(core::PCWSTR::from_raw(destination.as_ptr()), FileSystem::FILE_GENERIC_WRITE.0, FileSystem::FILE_SHARE_READ, None, FileSystem::CREATE_ALWAYS, FileSystem::FILE_ATTRIBUTE_NORMAL, None)? };
+        let destination = FileHandle(destination);
+        let mut copied = 0u64;
+        let mut buffer = vec![0u8; 1024 * 1024];
+
+        for range in ranges {
+            unsafe {
+                SetFilePointerEx(source.0, range.byte_offset as i64, None, FileSystem::FILE_BEGIN)?;
+            }
+            let mut remaining = range.byte_length;
+            while remaining > 0 {
+                let requested = remaining.min(buffer.len() as u64) as u32;
+                let mut read = 0u32;
+                unsafe {
+                    ReadFile(source.0, Some(&mut buffer[..requested as usize]), Some(&mut read), None)?;
+                }
+                if read == 0 {
+                    return Err(core::Error::from_thread());
+                }
+                let mut written = 0u32;
+                unsafe {
+                    WriteFile(destination.0, Some(&buffer[..read as usize]), Some(&mut written), None)?;
+                }
+                if written != read {
+                    return Err(core::Error::from_thread());
+                }
+                remaining -= read as u64;
+                copied += read as u64;
+            }
+        }
+
+        Ok(copied)
+    }
+
     /// Opens a VHDX file cleanly, handling wide string allocation safely.
     pub(crate) fn open<P: AsRef<OsStr>>(path: P) -> core::Result<Self> {
         // Safe, native wide-string conversion with stack-allocated buffer
@@ -40,15 +86,7 @@ impl VirtualDisk {
 
         // Encapsulate unsafe block strictly to the FFI boundary
         unsafe {
-            OpenVirtualDisk(
-                &storage_type,
-                core::PCWSTR::from_raw(encoded.as_ptr()),
-                Vhd::VIRTUAL_DISK_ACCESS_ALL,
-                Vhd::OPEN_VIRTUAL_DISK_FLAG_NONE,
-                Some(&open_params),
-                &mut handle,
-            )
-            .ok()?;
+            OpenVirtualDisk(&storage_type, core::PCWSTR::from_raw(encoded.as_ptr()), Vhd::VIRTUAL_DISK_ACCESS_ALL, Vhd::OPEN_VIRTUAL_DISK_FLAG_NONE, Some(&open_params), &mut handle).ok()?;
         }
 
         Ok(Self { handle })
@@ -72,32 +110,40 @@ impl VirtualDisk {
         let mut encoded: Vec<u16> = change_tracking_id.encode_wide().collect();
         encoded.push(0);
 
-        let mut ranges = vec![Vhd::QUERY_CHANGES_VIRTUAL_DISK_RANGE::default(); 256];
-        let mut range_count = ranges.len() as u32;
-        let mut processed_length = 0;
+        let mut changes = Vec::new();
+        let mut byte_offset = 0u64;
+        while byte_offset < byte_length {
+            let mut ranges = vec![Vhd::QUERY_CHANGES_VIRTUAL_DISK_RANGE::default(); 256];
+            let mut range_count = ranges.len() as u32;
+            let mut processed_length = 0u64;
 
-        unsafe {
-            QueryChangesVirtualDisk(
-                self.handle,
-                core::PCWSTR::from_raw(encoded.as_ptr()),
-                0,
-                byte_length,
-                Vhd::QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE,
-                ranges.as_mut_ptr(),
-                &mut range_count,
-                &mut processed_length,
-            )
-            .ok()?;
-        }
+            unsafe {
+                QueryChangesVirtualDisk(
+                    self.handle,
+                    core::PCWSTR::from_raw(encoded.as_ptr()),
+                    byte_offset,
+                    byte_length - byte_offset,
+                    Vhd::QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE,
+                    ranges.as_mut_ptr(),
+                    &mut range_count,
+                    &mut processed_length,
+                )
+                .ok()?;
+            }
 
-        ranges.truncate(range_count as usize);
-        Ok(ranges
-            .into_iter()
-            .map(|range| ChangedRange {
+            ranges.truncate(range_count as usize);
+            changes.extend(ranges.into_iter().map(|range| ChangedRange {
                 byte_offset: range.ByteOffset,
                 byte_length: range.ByteLength,
-            })
-            .collect())
+            }));
+
+            if processed_length == 0 {
+                break;
+            }
+            byte_offset = byte_offset.saturating_add(processed_length);
+        }
+
+        Ok(changes)
     }
 
     pub(crate) fn change_tracking_state(&self) -> core::Result<(bool, String)> {
@@ -112,10 +158,26 @@ impl VirtualDisk {
         }
 
         let state = unsafe { info.Anonymous.ChangeTrackingState };
-        let id = String::from_utf16_lossy(&state.MostRecentId)
-            .trim_end_matches('\0')
-            .to_owned();
+        let id = String::from_utf16_lossy(&state.MostRecentId).trim_end_matches('\0').to_owned();
         Ok((state.Enabled.as_bool(), id))
+    }
+}
+
+fn wide_path<P: AsRef<OsStr>>(path: P) -> Vec<u16> {
+    let mut encoded: Vec<u16> = path.as_ref().encode_wide().collect();
+    encoded.push(0);
+    encoded
+}
+
+struct FileHandle(Foundation::HANDLE);
+
+impl Drop for FileHandle {
+    fn drop(&mut self) {
+        if !self.0.is_invalid() {
+            unsafe {
+                let _ = Foundation::CloseHandle(self.0);
+            }
+        }
     }
 }
 

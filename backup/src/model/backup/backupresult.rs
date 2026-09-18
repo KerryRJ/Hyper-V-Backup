@@ -1,7 +1,7 @@
+use super::*;
+use crate::{infra::VirtualSystemReferencePoint, model::*};
 use chrono::{DateTime, Utc};
 use std::path::PathBuf;
-use crate::{infra::VirtualSystemReferencePoint, model::*};
-use super::*;
 
 #[derive(Clone, Debug)]
 pub struct BackupResult {

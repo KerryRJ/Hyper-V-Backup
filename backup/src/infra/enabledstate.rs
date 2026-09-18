@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(crate) enum EnabledState { 
+pub(crate) enum EnabledState {
     Unknown,
     Other,
     Enabled,

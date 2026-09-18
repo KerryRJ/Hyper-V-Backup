@@ -3,9 +3,9 @@ use serde::Deserialize;
 #[derive(Debug, Clone)]
 pub(crate) enum ConsoleMode {
     Default, // 0
-    Com1, // 1
-    Com2, // 2
-    None, // 3
+    Com1,    // 1
+    Com2,    // 2
+    None,    // 3
 }
 
 impl TryFrom<u16> for ConsoleMode {

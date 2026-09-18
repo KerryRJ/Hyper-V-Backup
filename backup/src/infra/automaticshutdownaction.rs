@@ -1,8 +1,8 @@
 #[derive(Debug, Clone)]
 pub(crate) enum AutomaticShutdownAction {
-    TurnOff, // 2
+    TurnOff,   // 2
     SaveState, // 3
-    Shutdown, // 4
+    Shutdown,  // 4
     DMTF(u16),
 }
 

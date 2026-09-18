@@ -1,7 +1,7 @@
 #[derive(Debug, Clone)]
 pub(crate) enum AutomaticRecoveryAction {
-    None, // 2
-    Restart, // 3
+    None,             // 2
+    Restart,          // 3
     RevertToSnapshot, // 4
     DMTF(u16),
 }

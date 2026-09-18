@@ -1,18 +1,18 @@
 use std::fmt;
 
-use serde::{Deserialize, Deserializer};
 use super::*;
+use serde::{Deserialize, Deserializer};
 
 #[derive(Clone)]
 pub(crate) struct VirtualSystemReferencePoint {
     pub consistency_level: ConsistencyLevel, // rw
-    pub has_associated_data: bool,  // rw
-    pub instance_id: InstanceId, // r
+    pub has_associated_data: bool,           // rw
+    pub instance_id: InstanceId,             // r
     pub path: Path,
-    pub reference_point_type: crate::model::referencepointservice::ReferencePointType,    // rw
-    pub resilient_change_tracking_identifiers: Vec<ResilientChangeTrackingId>, // r
-    pub virtual_disk_identifiers: Vec<VirtualDiskId>,    // r
-    pub virtual_system_identifier: VirtualMachineId, // r
+    pub reference_point_type: crate::model::referencepointservice::ReferencePointType, // rw
+    pub resilient_change_tracking_identifiers: Vec<ResilientChangeTrackingId>,         // r
+    pub virtual_disk_identifiers: Vec<VirtualDiskId>,                                  // r
+    pub virtual_system_identifier: VirtualMachineId,                                   // r
 }
 
 impl fmt::Debug for VirtualSystemReferencePoint {
@@ -38,16 +38,8 @@ impl<'de> Deserialize<'de> for VirtualSystemReferencePoint {
     {
         let output = VirtualSystemReferencePointOut::deserialize(deserializer)?;
         let virtual_system_identifier = VirtualMachineId::parse_str(&output.VirtualSystemIdentifier).map_err(serde::de::Error::custom)?;
-        let virtual_disk_identifiers = output
-            .VirtualDiskIdentifiers
-            .into_iter()
-            .map(VirtualDiskId::from)
-            .collect::<Vec<_>>();
-        let resilient_change_tracking_identifiers = output
-            .ResilientChangeTrackingIdentifiers
-            .into_iter()
-            .map(ResilientChangeTrackingId::from)
-            .collect::<Vec<_>>();
+        let virtual_disk_identifiers = output.VirtualDiskIdentifiers.into_iter().map(VirtualDiskId::from).collect::<Vec<_>>();
+        let resilient_change_tracking_identifiers = output.ResilientChangeTrackingIdentifiers.into_iter().map(ResilientChangeTrackingId::from).collect::<Vec<_>>();
         let reference_point = Self {
             consistency_level: output.ConsistencyLevel.try_into().map_err(serde::de::Error::custom)?,
             has_associated_data: output.HasAssociatedData,

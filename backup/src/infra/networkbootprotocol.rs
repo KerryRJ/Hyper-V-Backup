@@ -2,8 +2,8 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) enum NetworkBootProtocol {
-    IPv4,   // 4096
-    IPv6,   // 4097
+    IPv4, // 4096
+    IPv6, // 4097
 }
 
 impl TryFrom<u16> for NetworkBootProtocol {

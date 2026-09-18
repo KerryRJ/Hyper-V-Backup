@@ -10,9 +10,7 @@ impl TryFrom<String> for Version {
     type Error = &'static str;
 
     fn try_from(value: String) -> Result<Self, Self::Error> {
-        let (major, minor) = value
-            .split_once('.')
-            .ok_or("Version must use major.minor format")?;
+        let (major, minor) = value.split_once('.').ok_or("Version must use major.minor format")?;
 
         if major.is_empty() || minor.is_empty() || minor.contains('.') {
             return Err("Version must use major.minor format");

@@ -2,7 +2,7 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) enum EnhancedSessionTransportType {
-    VMBusPipe, // 0
+    VMBusPipe,    // 0
     HyperVSocket, // 1
 }
 

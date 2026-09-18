@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(crate) enum Dedicated { 
+pub(crate) enum Dedicated {
     NotDedicated,
 }
 

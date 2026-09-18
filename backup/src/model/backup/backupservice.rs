@@ -1,38 +1,26 @@
+use super::*;
 use crate::infra::*;
 use crate::model::*;
 use chrono::{Local, Utc};
 use std::ffi::OsStr;
+use std::fs::File;
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use super::*;
-
-// use chrono::{DateTime, Duration, Utc};
-// use crate::actor::backup::BackupActor;
-// use crate::model::{BackupSchedule, Error, Host, ScheduleId};
-// use crate::service::referencepointservice::ReferencePointCreateRequest;
-// use crate::service::scheduler::Scheduler;
-
-// use super::{BackupId, BackupRequest, BackupStatus, ReferencePointBackupOptions};
 
 pub struct BackupService {
     snapshot_service: VirtualSystemSnapshotService,
     management_service: VirtualSystemManagementService,
-    // actor: BackupActor,
-    // scheduler: Scheduler,
+    image_management_service: ImageManagementService,
 }
 
 impl BackupService {
-    pub async fn backup(
-        &self,
-        request: BackupRequest,
-    ) -> Result<BackupResult, Error> {
+    pub async fn backup_with_win32(&self, request: BackupRequest) -> Result<BackupResult, Error> {
         let virtual_machine = request.virtual_machine;
         let virtual_machine_name = virtual_machine.element_name.clone();
         let is_incremental = request.differential_backup_base.is_some();
-        log::info!(
-            "Starting {} backup for virtual machine name {}",
-            if is_incremental { "incremental" } else { "full" },
-            virtual_machine_name
-        );
+        let prefix = if is_incremental { "i" } else { "f" };
+        let destination = request.destination.join(format!("{prefix}-{}", Local::now().format("%Y%m%d-%H%M%S")));
+        std::fs::create_dir_all(&destination)?;
         let snapshot_settings = SnapshotSettings {
             properties: vec![
                 SnapshotProperty {
@@ -45,22 +33,105 @@ impl BackupService {
                 },
             ],
         };
-        let snapshot = self
+        let snapshot = self.snapshot_service.create(&virtual_machine, Some((&snapshot_settings).into()), request.snapshot_type, None).await?;
+        let disk_paths = match self.snapshot_service.virtual_disk_paths(&snapshot).await {
+            Ok(paths) => paths,
+            Err(error) => {
+                self.snapshot_service.destroy(snapshot).await?;
+                return Err(error.into());
+            }
+        };
+        let base = request.differential_backup_base.as_ref();
+        let mut manifest = Vec::new();
+        let mut changed_ranges = 0usize;
+        let mut changed_bytes = 0u64;
+
+        let result = (|| -> Result<(), Error> {
+            for (index, source_path) in disk_paths.iter().enumerate() {
+                let disk = VirtualDisk::open(source_path)?;
+                disk.set_change_tracking(true)?;
+                let (enabled, current_id) = disk.change_tracking_state()?;
+                if !enabled || current_id.is_empty() {
+                    return Err(Error::InvalidBackupRequest("virtual disk change tracking is unavailable"));
+                }
+
+                if let Some(base) = base {
+                    let tracking_id = base.resilient_change_tracking_identifiers.get(index).ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
+                    let ranges = disk.query_changes(OsStr::new(&tracking_id.to_string()), u64::MAX)?;
+                    let payload_path = destination.join(format!("{virtual_machine_name}-{index}.cbt"));
+                    let copied = VirtualDisk::copy_ranges(source_path, &payload_path, &ranges)?;
+                    let mut payload_offset = 0u64;
+                    for range in &ranges {
+                        manifest.push(serde_json::json!({
+                            "disk": source_path,
+                            "payload": payload_path,
+                            "payload_offset": payload_offset,
+                            "byte_offset": range.byte_offset,
+                            "byte_length": range.byte_length,
+                        }));
+                        payload_offset += range.byte_length;
+                    }
+                    changed_ranges += ranges.len();
+                    changed_bytes += copied;
+                } else {
+                    let destination_path = destination.join(format!("{virtual_machine_name}-{index}.vhdx"));
+                    VirtualDisk::copy_file(source_path, &destination_path)?;
+                }
+            }
+            if base.is_some() {
+                std::fs::write(destination.join("cbt-manifest.json"), serde_json::to_vec_pretty(&manifest).map_err(|_| Error::InvalidBackupRequest("failed to serialize CBT manifest"))?)?;
+            }
+            Ok(())
+        })();
+
+        if let Err(error) = result {
+            self.snapshot_service.destroy(snapshot).await?;
+            return Err(error);
+        }
+        let reference_point = self
             .snapshot_service
-            .create(
-                &virtual_machine,
-                Some((&snapshot_settings).into()),
-                request.snapshot_type,
+            .convert_to_reference_point(
+                snapshot,
+                Some(
+                    (&ReferencePointSettings {
+                        properties: vec![ReferencePointProperty {
+                            name: "ConsistencyLevel".into(),
+                            value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
+                        }],
+                    })
+                        .into(),
+                ),
                 None,
             )
             .await?;
+        Ok(BackupResult {
+            backup_id: BackupId::new_v4(),
+            virtual_machine,
+            destination: request.destination,
+            reference_point,
+            completed_at: Utc::now(),
+        })
+    }
 
-        log::debug!(
-            "Created backup snapshot {} for virtual machine name {}",
-            snapshot.path.as_str(),
-            virtual_machine_name
-        );
-
+    pub async fn backup(&self, request: BackupRequest) -> Result<BackupResult, Error> {
+        let virtual_machine = request.virtual_machine;
+        let virtual_machine_name = virtual_machine.element_name.clone();
+        let is_incremental = request.differential_backup_base.is_some();
+        log::info!("Starting {} backup for virtual machine name {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name);
+        let snapshot_settings = SnapshotSettings {
+            properties: vec![
+                SnapshotProperty {
+                    name: "ConsistencyLevel".into(),
+                    value: SnapshotPropertyValue::Uint8(u8::from(request.crash_consistency)),
+                },
+                SnapshotProperty {
+                    name: "IgnoreNonSnapshottableDisks".into(),
+                    value: SnapshotPropertyValue::Boolean(true),
+                },
+            ],
+        };
+        let snapshot = self.snapshot_service.create(&virtual_machine, Some((&snapshot_settings).into()), request.snapshot_type, None).await?;
+        log::debug!("Created backup snapshot {snapshot:#?} for virtual machine name {virtual_machine_name}");
         let mut export_settings = ExportSettings {
             properties: vec![
                 ExportProperty {
@@ -83,29 +154,19 @@ impl BackupService {
                     name: "CreateVmExportSubdirectory".into(),
                     value: ExportPropertyValue::Boolean(false),
                 },
-            ]
+            ],
         };
         export_settings.properties.push(ExportProperty {
             name: "SnapshotVirtualSystem".into(),
             value: ExportPropertyValue::String(snapshot.path.as_str().to_owned()),
         });
-        let export_prefix = if request.differential_backup_base.is_some() {
-            "i"
-        } else {
-            "f"
-        };
+        let export_prefix = if request.differential_backup_base.is_some() { "i" } else { "f" };
         let differential_backup_base = request.differential_backup_base.as_ref();
         if let Some(reference_point) = differential_backup_base {
-            log::debug!(
-                "Using differential backup base {}",
-                reference_point.path.as_str()
-            );
+            log::debug!("Using differential backup base {}", reference_point.path.as_str());
 
             let current_reference_points = virtual_machine.get_reference_points().await;
-            log::debug!(
-                "Current reference points on virtual machine {}: {current_reference_points:#?}",
-                virtual_machine_name
-            );
+            log::debug!("Current reference points on virtual machine {}: {current_reference_points:#?}", virtual_machine_name);
 
             export_settings.properties.push(ExportProperty {
                 name: "DifferentialBackupBase".into(),
@@ -113,51 +174,20 @@ impl BackupService {
             });
         }
         log::debug!("Export settings: {export_settings:#?}");
-        let export_directory = request.destination.join(format!(
-            "{export_prefix}-{}",
-            Local::now().format("%Y%m%d-%H%M%S")
-        ));
-        log::info!(
-            "Exporting backup for virtual machine name {} to {}",
-            virtual_machine_name,
-            export_directory.display(),
-        );
-        let result = self
-            .management_service
-            .export_system_definition(
-                virtual_machine.clone(),
-                export_directory.clone(),
-                Some(VirtualSystemExportSettingDataIn::from(&export_settings)),
-            )
-            .await;
+        let export_directory = request.destination.join(format!("{export_prefix}-{}", Local::now().format("%Y%m%d-%H%M%S")));
+        log::info!("Exporting backup for virtual machine name {} to {}", virtual_machine_name, export_directory.display(),);
+        let result = self.management_service.export_system_definition(virtual_machine.clone(), export_directory.clone(), Some(VirtualSystemExportSettingDataIn::from(&export_settings))).await;
         match result {
             Ok(_) => {
-                log::debug!(
-                    "Export completed for virtual machine name {}; converting snapshot {} to a reference point",
-                    virtual_machine_name,
-                    snapshot.path.as_str()
-                );
+                log::debug!("Export completed for virtual machine name {}; converting snapshot {} to a reference point", virtual_machine_name, snapshot.path.as_str());
                 let reference_point_settings = ReferencePointSettings {
-                    properties: vec![
-                        ReferencePointProperty {
-                            name: "ConsistencyLevel".into(),
-                            value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
-                        },
-                    ],
+                    properties: vec![ReferencePointProperty {
+                        name: "ConsistencyLevel".into(),
+                        value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
+                    }],
                 };
-                let reference_point = self.snapshot_service
-                    .convert_to_reference_point(
-                        snapshot,
-                        Some((&reference_point_settings).into()),
-                        None,
-                    )
-                    .await?;
-                log::info!(
-                    "Completed {} backup for virtual machine name {} with reference point {}",
-                    if is_incremental { "incremental" } else { "full" },
-                    virtual_machine_name,
-                    reference_point.path.as_str()
-                );
+                let reference_point = self.snapshot_service.convert_to_reference_point(snapshot, Some((&reference_point_settings).into()), None).await?;
+                log::info!("Completed {} backup for virtual machine name {} with reference point {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name, reference_point.path.as_str());
                 Ok(BackupResult {
                     backup_id: BackupId::new_v4(),
                     virtual_machine: virtual_machine,
@@ -167,24 +197,86 @@ impl BackupService {
                 })
             }
             Err(error) => {
-                log::error!(
-                    "Failed to export {} backup for virtual machine name {}: {}",
-                    if is_incremental { "incremental" } else { "full" },
-                    virtual_machine_name,
-                    error
-                );
+                log::error!("Failed to export {} backup for virtual machine name {}: {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name, error);
                 log::debug!("Destroying failed backup snapshot {}", snapshot.path.as_str());
                 self.snapshot_service.destroy(snapshot).await?;
                 Err(error.into())
             }
         }
     }
+
+    pub async fn backup_new(&self, request: BackupRequest) -> Result<BackupResult, Error> {
+        let virtual_machine = request.virtual_machine;
+        let virtual_machine_name = virtual_machine.element_name.clone();
+        let is_incremental = request.differential_backup_base.is_some();
+        log::info!("Starting {} backup for virtual machine name {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name);
+        let snapshot_settings = SnapshotSettings {
+            properties: vec![
+                SnapshotProperty {
+                    name: "ConsistencyLevel".into(),
+                    value: SnapshotPropertyValue::Uint8(u8::from(request.crash_consistency)),
+                },
+                SnapshotProperty {
+                    name: "IgnoreNonSnapshottableDisks".into(),
+                    value: SnapshotPropertyValue::Boolean(true),
+                },
+            ],
+        };
+        let snapshot = self.snapshot_service.create(&virtual_machine, Some((&snapshot_settings).into()), request.snapshot_type, None).await?;
+        log::debug!("Created backup snapshot {snapshot:#?} for virtual machine name {virtual_machine_name}");
+
+        let storage_allocation_setting_data = self.snapshot_service.storage_allocation_setting_data(&snapshot).await?;
+        log::debug!("StorageAllocationSettingData returned for snapshot {}: {storage_allocation_setting_data:#?}", snapshot.path.as_str(),);
+        let mut virtual_hard_disk_settings = Vec::new();
+        for storage_allocation in storage_allocation_setting_data {
+            if !storage_allocation.resource_sub_type.contains("Virtual Hard Disk") {
+                continue;
+            }
+            for host_resource in &storage_allocation.host_resource {
+                let path = host_resource.to_string_lossy().into_owned();
+                let virtual_hard_disk = self.image_management_service.get_virtual_hard_disk_setting_data(&path).await?;
+                virtual_hard_disk_settings.push(virtual_hard_disk);
+            }
+        }
+        log::debug!("Virtual hard disk settings returned for snapshot {}: {virtual_hard_disk_settings:#?}", snapshot.path.as_str());
+
+        // TODO: Locate the historic baseline RCT ID
+        // TODO: If full backup, then no ID
+        // TODO: If incremental backup, then use the historic baseline RCT ID
+        // TODO: Open the Virtual Disk Handle via Win32
+        // TODO: Query the Change Map via QueryChangesVirtualDisk
+        // TODO: Stream, Chunk (FastCDC), and Compress (zstd)
+        // TODO: Seal and Transition to Reference Point
+
+        let reference_point_settings = ReferencePointSettings {
+            properties: vec![ReferencePointProperty {
+                name: "ConsistencyLevel".into(),
+                value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
+            }],
+        };
+        let reference_point = self.snapshot_service.convert_to_reference_point(snapshot, Some((&reference_point_settings).into()), None).await?;
+        log::info!("Completed {} backup for virtual machine name {} with reference point {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name, reference_point.path.as_str());
+        Ok(BackupResult {
+            backup_id: BackupId::new_v4(),
+            virtual_machine: virtual_machine,
+            destination: request.destination,
+            reference_point: reference_point,
+            completed_at: Utc::now(),
+        })
+    }
 }
 
-fn query_exported_changes(export_directory: &Path, base: Option<&VirtualSystemReferencePoint>) -> Result<usize, Error> {
+struct CbtCapture {
+    range_count: usize,
+    byte_count: u64,
+}
+
+fn capture_changed_blocks(export_directory: &Path, base: Option<&VirtualSystemReferencePoint>, virtual_machine_name: &str) -> Result<CbtCapture, Error> {
     let mut disk_paths = Vec::new();
     collect_virtual_disks(export_directory, &mut disk_paths)?;
-    let mut changed_ranges = 0;
+    let mut manifest = Vec::new();
+    let mut range_count = 0;
+    let mut byte_count = 0;
 
     for (index, disk_path) in disk_paths.iter().enumerate() {
         let disk = VirtualDisk::open(disk_path)?;
@@ -195,16 +287,43 @@ fn query_exported_changes(export_directory: &Path, base: Option<&VirtualSystemRe
         }
 
         if let Some(base) = base {
-            let change_tracking_id = base
-                .resilient_change_tracking_identifiers
-                .get(index)
-                .ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
+            let change_tracking_id = base.resilient_change_tracking_identifiers.get(index).ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
             let change_tracking_id = change_tracking_id.to_string();
-            changed_ranges += disk.query_changes(OsStr::new(&change_tracking_id), u64::MAX)?.len();
+            let ranges = disk.query_changes(OsStr::new(&change_tracking_id), u64::MAX)?;
+            let payload_path = export_directory.join(format!("{virtual_machine_name}-{index}.cbt"));
+            let mut source = File::open(disk_path)?;
+            let mut payload = File::create(&payload_path)?;
+            let mut payload_offset = 0u64;
+            for range in &ranges {
+                source.seek(SeekFrom::Start(range.byte_offset))?;
+                let mut remaining = range.byte_length;
+                let mut buffer = [0u8; 1024 * 1024];
+                while remaining > 0 {
+                    let read_length = remaining.min(buffer.len() as u64) as usize;
+                    source.read_exact(&mut buffer[..read_length])?;
+                    payload.write_all(&buffer[..read_length])?;
+                    remaining -= read_length as u64;
+                }
+                manifest.push(serde_json::json!({
+                    "disk": disk_path,
+                    "payload": payload_path,
+                    "payload_offset": payload_offset,
+                    "byte_offset": range.byte_offset,
+                    "byte_length": range.byte_length,
+                }));
+                payload_offset += range.byte_length;
+                byte_count += range.byte_length;
+            }
+            range_count += ranges.len();
         }
     }
 
-    Ok(changed_ranges)
+    if base.is_some() {
+        let manifest_path = export_directory.join("cbt-manifest.json");
+        std::fs::write(manifest_path, serde_json::to_vec_pretty(&manifest).map_err(|_| Error::InvalidBackupRequest("failed to serialize CBT manifest"))?)?;
+    }
+
+    Ok(CbtCapture { range_count, byte_count })
 }
 
 fn collect_virtual_disks(directory: &Path, paths: &mut Vec<PathBuf>) -> Result<(), Error> {
@@ -229,27 +348,16 @@ mod tests {
     #[ignore = "requires a configured Hyper-V VM and writable export directory"]
     async fn full_then_incremental_backup_exports_vm_and_returns_results() {
         let _ = env_logger::try_init();
-        let virtual_machine_name =
-            std::env::var("HYPER_V_VM").expect("HYPER_V_VM must be set");
-        let destination = PathBuf::from(
-            std::env::var("HYPER_V_BACKUP_DESTINATION")
-                .expect("HYPER_V_BACKUP_DESTINATION must be set"),
-        );
-        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE)
-            .expect("Hyper-V WMI connection should be available");
-        let virtual_machine = Host::new()
-            .expect("Hyper-V host should be available")
-            .get_virtual_machine_by_name(&virtual_machine_name)
-            .await
-            .expect("Hyper-V VM should be available");
+        let virtual_machine_name = std::env::var("HYPER_V_VM").expect("HYPER_V_VM must be set");
+        let destination = PathBuf::from(std::env::var("HYPER_V_BACKUP_DESTINATION").expect("HYPER_V_BACKUP_DESTINATION must be set"));
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let virtual_machine = Host::new().expect("Hyper-V host should be available").get_virtual_machine_by_name(&virtual_machine_name).await.expect("Hyper-V VM should be available");
         let virtual_machine_id = virtual_machine.name;
-        let reference_point_service = VirtualSystemReferencePointService::new(connection.clone())
-            .expect("Hyper-V reference-point service should be available");
+        let reference_point_service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
         let service = BackupService {
-            snapshot_service: VirtualSystemSnapshotService::new(connection.clone())
-                .expect("Hyper-V snapshot service should be available"),
-            management_service: VirtualSystemManagementService::new(connection)
-                .expect("Hyper-V management service should be available"),
+            snapshot_service: VirtualSystemSnapshotService::new(connection.clone()).expect("Hyper-V snapshot service should be available"),
+            management_service: VirtualSystemManagementService::new(connection.clone()).expect("Hyper-V management service should be available"),
+            image_management_service: ImageManagementService::new(connection.clone()).expect("Hyper-V image management service should be available"),
         };
         let backup_request = BackupRequest {
             virtual_machine: virtual_machine.clone(),
@@ -258,10 +366,7 @@ mod tests {
             destination: destination.clone(),
             differential_backup_base: None,
         };
-        let full_result = service
-            .backup(backup_request)
-            .await
-            .expect("full backup should complete");
+        let full_result = service.backup(backup_request).await.expect("full backup should complete");
 
         assert_eq!(full_result.virtual_machine.name, virtual_machine_id);
         assert_eq!(full_result.destination, destination);
@@ -286,279 +391,42 @@ mod tests {
         assert!(!incremental_result.backup_id.to_string().is_empty());
         assert!(!incremental_result.reference_point.path.to_string().is_empty());
 
-        reference_point_service
-            .destroy(&full_reference_point)
+        reference_point_service.destroy(&full_reference_point).await.expect("full backup reference point should be destroyed");
+        reference_point_service.destroy(&incremental_result.reference_point).await.expect("incremental backup reference point should be destroyed");
+    }
+
+    #[tokio::test]
+    #[ignore = "requires a configured Hyper-V VM and writable export directory"]
+    async fn backup_new_creates_reference_point_and_reads_storage_allocations() {
+        let _ = env_logger::try_init();
+        let virtual_machine_name = std::env::var("HYPER_V_VM").expect("HYPER_V_VM must be set");
+        let destination = PathBuf::from(std::env::var("HYPER_V_BACKUP_DESTINATION").expect("HYPER_V_BACKUP_DESTINATION must be set"));
+        let connection = wmi::WMIConnection::with_namespace_path(HYPER_V_NAMESPACE).expect("Hyper-V WMI connection should be available");
+        let virtual_machine = Host::new().expect("Hyper-V host should be available").get_virtual_machine_by_name(&virtual_machine_name).await.expect("Hyper-V VM should be available");
+        let virtual_machine_id = virtual_machine.name;
+        let reference_point_service = VirtualSystemReferencePointService::new(connection.clone()).expect("Hyper-V reference-point service should be available");
+        let service = BackupService {
+            snapshot_service: VirtualSystemSnapshotService::new(connection.clone()).expect("Hyper-V snapshot service should be available"),
+            management_service: VirtualSystemManagementService::new(connection.clone()).expect("Hyper-V management service should be available"),
+            image_management_service: ImageManagementService::new(connection.clone()).expect("Hyper-V image management service should be available"),
+        };
+
+        let result = service
+            .backup_new(BackupRequest {
+                virtual_machine,
+                snapshot_type: SnapshotType::VendorSpecific(32768),
+                crash_consistency: ConsistencyLevel::Crash,
+                destination: destination.clone(),
+                differential_backup_base: None,
+            })
             .await
-            .expect("full backup reference point should be destroyed");
-        reference_point_service
-            .destroy(&incremental_result.reference_point)
-            .await
-            .expect("incremental backup reference point should be destroyed");
+            .expect("new backup should complete");
+
+        assert_eq!(result.virtual_machine.name, virtual_machine_id);
+        assert_eq!(result.destination, destination);
+        assert!(!result.backup_id.to_string().is_empty());
+        assert!(!result.reference_point.path.to_string().is_empty());
+
+        reference_point_service.destroy(&result.reference_point).await.expect("backup_new reference point should be destroyed");
     }
 }
-
-
-// impl BackupService {
-//     pub fn new(host: Arc<Host>) -> Self {
-//         let actor = BackupActor::new();
-//         tokio::spawn(actor.clone().run());
-//         let scheduler = Scheduler::new(actor.clone());
-//         Self { host, actor, scheduler }
-//     }
-
-//     pub async fn start(&self, request: BackupRequest) -> Result<BackupId, Error> {
-//         if request.destination.as_os_str().is_empty() {
-//             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
-//         }
-//         self.host.get_virtual_machine(request.virtual_machine_id).await?;
-//         self.actor.start(request).await
-//     }
-
-//     pub async fn status(&self, id: BackupId) -> Option<BackupStatus> {
-//         self.actor.status(id).await
-//     }
-
-//     pub async fn start_with_reference_point(&self, request: BackupRequest, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<BackupId, Error> {
-//         if request.destination.as_os_str().is_empty() {
-//             return Err(Error::InvalidBackupRequest("destination cannot be empty"));
-//         }
-//         self.host.get_virtual_machine(request.virtual_machine_id).await?;
-//         self.actor.start_with_reference_point(request, reference_point, options).await
-//     }
-
-//     pub async fn cancel(&self, id: BackupId) -> Result<(), Error> {
-//         self.actor.cancel(id).await
-//     }
-
-//     pub async fn schedule(&self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>) -> Result<ScheduleId, Error> {
-//         self.scheduler.schedule(request, first_run_at, repeat_every).await
-//     }
-
-//     pub async fn schedule_now(&self, request: BackupRequest, repeat_every: Option<Duration>) -> Result<(ScheduleId, BackupId), Error> {
-//         self.scheduler.schedule_now(request, repeat_every).await
-//     }
-
-//     pub async fn schedule_with_reference_point(
-//         &self, request: BackupRequest, first_run_at: DateTime<Utc>, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions,
-//     ) -> Result<ScheduleId, Error> {
-//         self.scheduler.schedule_with_reference_point(request, first_run_at, repeat_every, reference_point, options).await
-//     }
-
-//     pub async fn schedule_now_with_reference_point(&self, request: BackupRequest, repeat_every: Option<Duration>, reference_point: ReferencePointCreateRequest, options: ReferencePointBackupOptions) -> Result<(ScheduleId, BackupId), Error> {
-//         self.scheduler.schedule_now_with_reference_point(request, repeat_every, reference_point, options).await
-//     }
-
-//     pub async fn cancel_schedule(&self, id: ScheduleId) -> Result<(), Error> {
-//         self.scheduler.cancel(id).await
-//     }
-
-//     pub async fn schedules(&self) -> Vec<BackupSchedule> {
-//         self.scheduler.list().await
-//     }
-
-//     pub async fn set_schedule_enabled(&self, id: ScheduleId, enabled: bool) -> Result<(), Error> {
-//         self.scheduler.set_enabled(id, enabled).await
-//     }
-
-//     pub async fn trigger_due(&self, now: DateTime<Utc>) -> Result<Vec<BackupId>, Error> {
-//         self.scheduler.trigger_due(now).await
-//     }
-// }
-
-// #[cfg(test)]
-// mod tests {
-//     use std::path::PathBuf;
-
-//     use chrono::Duration;
-
-//     use crate::infra::VirtualMachineId;
-
-//     use super::*;
-
-//     fn vm_id() -> VirtualMachineId {
-//         VirtualMachineId::parse_str("11111111-1111-1111-1111-111111111111").unwrap()
-//     }
-
-//     fn service() -> BackupService {
-//         BackupService::new(Arc::new(Host::new()))
-//     }
-
-//     #[tokio::test]
-//     async fn rejects_empty_destination() {
-//         let result = service()
-//             .start(BackupRequest {
-//                 virtual_machine_id: vm_id(),
-//                 destination: PathBuf::new(),
-//             })
-//             .await;
-
-//         assert!(matches!(result, Err(Error::InvalidBackupRequest("destination cannot be empty"))));
-//     }
-
-//     #[tokio::test]
-//     async fn future_schedule_does_not_trigger_early() {
-//         let service = service();
-//         let request = BackupRequest {
-//             virtual_machine_id: vm_id(),
-//             destination: PathBuf::from("backup"),
-//         };
-//         let now = Utc::now();
-
-//         service.schedule(request, now + Duration::minutes(1), None).await.unwrap();
-
-//         assert!(service.trigger_due(now).await.unwrap().is_empty());
-//     }
-
-//     #[tokio::test]
-//     async fn stores_schedule_configuration() {
-//         let service = service();
-//         let virtual_machine_id = vm_id();
-//         let destination = PathBuf::from("backup");
-//         let first_run_at = Utc::now() + Duration::minutes(5);
-//         let repeat_every = Some(Duration::hours(1));
-
-//         let id = service
-//             .schedule(
-//                 BackupRequest {
-//                     virtual_machine_id,
-//                     destination: destination.clone(),
-//                 },
-//                 first_run_at,
-//                 repeat_every,
-//             )
-//             .await
-//             .unwrap();
-
-//         let schedule = service.schedules().await.into_iter().find(|schedule| schedule.id == id).unwrap();
-
-//         assert_eq!(schedule.virtual_machine_id, virtual_machine_id);
-//         assert_eq!(schedule.destination, destination);
-//         assert_eq!(schedule.next_run_at, first_run_at);
-//         assert_eq!(schedule.repeat_every, repeat_every);
-//         assert!(schedule.enabled);
-//     }
-
-//     #[tokio::test]
-//     async fn rejects_non_positive_repeat_interval() {
-//         let service = service();
-//         let request = BackupRequest {
-//             virtual_machine_id: vm_id(),
-//             destination: PathBuf::from("backup"),
-//         };
-
-//         for repeat_every in [Duration::zero(), -Duration::minutes(1)] {
-//             assert!(matches!(
-//                 service.schedule(request.clone(), Utc::now(), Some(repeat_every)).await,
-//                 Err(Error::InvalidBackupSchedule("repeat interval must be positive"))
-//             ));
-//         }
-//     }
-
-//     #[tokio::test]
-//     async fn one_shot_schedule_is_disabled_after_triggering() {
-//         let service = service();
-//         let now = Utc::now();
-//         let id = service
-//             .schedule(
-//                 BackupRequest {
-//                     virtual_machine_id: vm_id(),
-//                     destination: PathBuf::from("backup"),
-//                 },
-//                 now,
-//                 None,
-//             )
-//             .await
-//             .unwrap();
-
-//         assert_eq!(service.trigger_due(now).await.unwrap().len(), 1);
-//         assert!(!service.schedules().await.into_iter().find(|schedule| schedule.id == id).unwrap().enabled);
-//         assert!(service.trigger_due(now).await.unwrap().is_empty());
-//     }
-
-//     #[tokio::test]
-//     async fn disabled_schedule_does_not_trigger_until_reenabled() {
-//         let service = service();
-//         let now = Utc::now();
-//         let id = service
-//             .schedule(
-//                 BackupRequest {
-//                     virtual_machine_id: vm_id(),
-//                     destination: PathBuf::from("backup"),
-//                 },
-//                 now,
-//                 Some(Duration::minutes(1)),
-//             )
-//             .await
-//             .unwrap();
-
-//         service.set_schedule_enabled(id, false).await.unwrap();
-//         assert!(service.trigger_due(now).await.unwrap().is_empty());
-
-//         service.set_schedule_enabled(id, true).await.unwrap();
-//         assert_eq!(service.trigger_due(now).await.unwrap().len(), 1);
-//     }
-
-//     #[tokio::test]
-//     async fn cancel_schedule_removes_schedule() {
-//         let service = service();
-//         let id = service
-//             .schedule(
-//                 BackupRequest {
-//                     virtual_machine_id: vm_id(),
-//                     destination: PathBuf::from("backup"),
-//                 },
-//                 Utc::now(),
-//                 None,
-//             )
-//             .await
-//             .unwrap();
-
-//         service.cancel_schedule(id).await.unwrap();
-
-//         assert!(service.schedules().await.into_iter().all(|schedule| schedule.id != id));
-//         assert!(matches!(service.cancel_schedule(id).await, Err(Error::InvalidBackupSchedule("schedule not found"))));
-//     }
-
-//     #[tokio::test]
-//     async fn triggers_multiple_due_schedules() {
-//         let service = service();
-//         let now = Utc::now();
-
-//         for _ in 0..2 {
-//             service
-//                 .schedule(
-//                     BackupRequest {
-//                         virtual_machine_id: vm_id(),
-//                         destination: PathBuf::from("backup"),
-//                     },
-//                     now,
-//                     None,
-//                 )
-//                 .await
-//                 .unwrap();
-//         }
-
-//         assert_eq!(service.trigger_due(now).await.unwrap().len(), 2);
-//     }
-
-//     #[tokio::test]
-//     async fn repeating_schedule_advances_after_missed_ticks() {
-//         let service = service();
-//         let now = Utc::now();
-
-//         service
-//             .schedule(
-//                 BackupRequest {
-//                     virtual_machine_id: vm_id(),
-//                     destination: PathBuf::from("backup"),
-//                 },
-//                 now - Duration::minutes(5),
-//                 Some(Duration::minutes(1)),
-//             )
-//             .await
-//             .unwrap();
-
-//         assert_eq!(service.trigger_due(now).await.unwrap().len(), 1);
-//         assert!(service.trigger_due(now).await.unwrap().is_empty());
-//     }
-// }

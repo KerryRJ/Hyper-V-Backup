@@ -2,10 +2,10 @@ use serde::Deserialize;
 
 #[derive(Debug, Clone)]
 pub(crate) enum UserSnapshotType {
-    Disable, // 2
+    Disable,                  // 2
     ProductionFallbackToTest, // 3
-    ProductionNoFallback, // 4
-    Test, // 5
+    ProductionNoFallback,     // 4
+    Test,                     // 5
 }
 
 impl TryFrom<u16> for UserSnapshotType {

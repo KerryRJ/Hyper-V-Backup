@@ -1,7 +1,7 @@
 use serde::Deserialize;
 
 #[derive(Clone, Debug)]
-pub(crate) enum DetailedStatus { 
+pub(crate) enum DetailedStatus {
     NotAvailable,
     NoAdditionalInformation,
     Stressed,

@@ -1,5 +1,5 @@
-use uuid::Uuid;
 use std::fmt::{Display, Formatter};
+use uuid::Uuid;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, serde::Serialize)]
 #[serde(transparent)]

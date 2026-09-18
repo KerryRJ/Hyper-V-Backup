@@ -1,5 +1,5 @@
-use std::time::Duration;
 use futures::StreamExt;
+use std::time::Duration;
 use tokio::time::Instant;
 
 use super::*;
@@ -104,44 +104,36 @@ impl std::fmt::Display for Job {
 }
 
 impl Job {
-    pub(super) async fn execute_method(
-        connection: &wmi::WMIConnection,
-        service_path: &str,
-        method_name: &str,
-        input: &wmi::IWbemClassWrapper,
-    ) -> wmi::WMIResult<JobState> {
-        let result = connection
-            .exec_method(service_path, method_name, Some(input))?
-            .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("{method_name} returned no output").into()))?
-            .into_desr::<MethodResult>()?;
-        match result.return_value {
+    pub(super) async fn execute_method(connection: &wmi::WMIConnection, service_path: &str, method_name: &str, input: &wmi::IWbemClassWrapper) -> wmi::WMIResult<JobState> {
+        let output = connection.exec_method(service_path, method_name, Some(input))?.ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("{method_name} returned no output").into()))?;
+        let return_value: u32 = output
+            .get_property("ReturnValue")
+            .and_then(TryInto::try_into)
+            .map_err(|error| wmi::WMIError::ConvertVariantError(format!("{method_name} return value deserialization failed: {error}").into()))?;
+        match return_value {
             0 => {
                 log::debug!("{method_name} completed synchronously");
                 Ok(JobState::Completed)
-            },
+            }
             4096 => {
-                let path = result.job.ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("{method_name} returned no job").into()))?;
+                let path = match output.get_property("Job")? {
+                    wmi::Variant::String(path) => path,
+                    value => {
+                        return Err(wmi::WMIError::ConvertVariantError(format!("{method_name} returned unexpected Job value: {value:?}").into()));
+                    }
+                };
                 let job_id = Self::job_id(&path)?;
-                let query = format!(
-                    "SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob' AND TargetInstance.InstanceID = '{}'",
-                    job_id.replace('\'', "''"),
-                );
+                let query = format!("SELECT * FROM __InstanceModificationEvent WITHIN 1 WHERE TargetInstance ISA 'Msvm_ConcreteJob' AND TargetInstance.InstanceID = '{}'", job_id.replace('\'', "''"),);
                 let mut job_events = connection.async_raw_notification::<ConcreteJobModificationEvent>(&query)?;
                 let job_state = Self::wait(connection, path, &mut job_events).await?.job_state;
                 log::debug!("{method_name} job completed with state: {job_state:?}");
                 Ok(job_state)
-            },
-            return_value => Err(wmi::WMIError::ConvertVariantError(
-                format!("{method_name} failed: {} ({return_value})", method_return_value_description(return_value)).into(),
-            )),
+            }
+            return_value => Err(wmi::WMIError::ConvertVariantError(format!("{method_name} failed: {} ({return_value})", method_return_value_description(return_value)).into())),
         }
     }
 
-    pub(super) async fn wait(
-        connection: &wmi::WMIConnection,
-        path: String,
-        job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin),
-    ) -> wmi::WMIResult<Self> {
+    pub(super) async fn wait(connection: &wmi::WMIConnection, path: String, job_events: &mut (impl futures::Stream<Item = wmi::WMIResult<ConcreteJobModificationEvent>> + Unpin)) -> wmi::WMIResult<Self> {
         let job_id = Self::job_id(&path)?;
         if let Ok(current_job) = connection.get_object(&path).and_then(|object| object.into_desr::<JobOut>()) {
             if current_job.JobState == 7 {
@@ -154,14 +146,10 @@ impl Job {
                 Ok(Some(result)) => result,
                 Ok(None) => break,
                 Err(_) => {
-                    return Err(wmi::WMIError::ConvertVariantError(
-                        format!("Concrete job did not complete within {:?}: {job_id}", JOB_WAIT_TIMEOUT).into(),
-                    ));
-                },
+                    return Err(wmi::WMIError::ConvertVariantError(format!("Concrete job did not complete within {:?}: {job_id}", JOB_WAIT_TIMEOUT).into()));
+                }
             };
-            let event = result.map_err(|error| {
-                wmi::WMIError::ConvertVariantError(format!("Concrete job notification failed: {error}").into())
-            })?;
+            let event = result.map_err(|error| wmi::WMIError::ConvertVariantError(format!("Concrete job notification failed: {error}").into()))?;
             let concrete_job = event.TargetInstance;
             if concrete_job.InstanceID != job_id {
                 continue;
@@ -176,19 +164,14 @@ impl Job {
                 8 => return Err(wmi::WMIError::ConvertVariantError(format!("The job has been terminated ({})", concrete_job.JobState).into())),
                 9 => return Err(wmi::WMIError::ConvertVariantError(format!("The job has been killed ({})", concrete_job.JobState).into())),
                 10 => {
-                    return Err(wmi::WMIError::ConvertVariantError(format!(
-                        "The job is in an exception state ({}): {} ({}) [job_status={:?}; status={:?}; description={:?}; error_summary={:?}; status_descriptions={:?}; percent_complete={}]",
-                        concrete_job.JobState,
-                        concrete_job.ErrorDescription,
-                        concrete_job.ErrorCode,
-                        concrete_job.JobStatus,
-                        concrete_job.Status,
-                        concrete_job.Description,
-                        concrete_job.ErrorSummaryDescription,
-                        concrete_job.StatusDescriptions,
-                        concrete_job.PercentComplete,
-                    ).into()));
-                },
+                    return Err(wmi::WMIError::ConvertVariantError(
+                        format!(
+                            "The job is in an exception state ({}): {} ({}) [job_status={:?}; status={:?}; description={:?}; error_summary={:?}; status_descriptions={:?}; percent_complete={}]",
+                            concrete_job.JobState, concrete_job.ErrorDescription, concrete_job.ErrorCode, concrete_job.JobStatus, concrete_job.Status, concrete_job.Description, concrete_job.ErrorSummaryDescription, concrete_job.StatusDescriptions, concrete_job.PercentComplete,
+                        )
+                        .into(),
+                    ));
+                }
                 11 => return Err(wmi::WMIError::ConvertVariantError("The job is in a vendor-specific state that supports problem discovery, or resolution, or both".into())),
                 12 => return Err(wmi::WMIError::ConvertVariantError("The job is in a pending query state".into())), // TODO: How?
                 13..=32767 => return Err(wmi::WMIError::ConvertVariantError(format!("The job is in a DMTF reserved state ({})", concrete_job.JobState).into())),
@@ -199,9 +182,8 @@ impl Job {
         Err(wmi::WMIError::ConvertVariantError(format!("Concrete job event stream ended before completion: {job_id}").into()))
     }
 
-    fn job_id(path: &str) -> wmi::WMIResult<String> {
-        path
-            .split_once("InstanceID=\"")
+    pub(super) fn job_id(path: &str) -> wmi::WMIResult<String> {
+        path.split_once("InstanceID=\"")
             .and_then(|(_, value)| value.split_once('"').map(|(instance_id, _)| instance_id.to_owned()))
             .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Concrete job path has no InstanceID: {path}").into()))
     }
@@ -259,48 +241,39 @@ impl Job {
         T: serde::de::DeserializeOwned,
     {
         let job_path = self.path.as_str();
-        let query = format!("ASSOCIATORS OF {{{job_path}}} WHERE AssocClass = CIM_AffectedJobElement ResultClass = {relation}");
+        let query = format!("ASSOCIATORS OF {{{job_path}}} WHERE AssocClass = Msvm_AffectedJobElement ResultClass = {relation}");
         if let Ok(mut related_objects) = self.connection.raw_query::<T>(&query) {
             if let Some(related_object) = related_objects.pop() {
                 return Ok(related_object);
             }
         }
         let related_objects = self.connection.raw_query::<std::collections::HashMap<String, serde_json::Value>>(&query)?;
-        let related_object = related_objects.into_iter().next().ok_or_else(|| {
-            wmi::WMIError::ConvertVariantError(format!("Related object not found for job: {job_path}").into())
-        })?;
+        let related_object = related_objects.into_iter().next().ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Related object not found for job: {job_path}").into()))?;
         let related_object = if related_object.contains_key("__Path") {
             related_object
         } else {
-            let instance_id = related_object
-                .get("InstanceID")
-                .and_then(serde_json::Value::as_str)
-                .ok_or_else(|| wmi::WMIError::ConvertVariantError("Related object has no InstanceID".into()))?;
+            let instance_id = related_object.get("InstanceID").and_then(serde_json::Value::as_str).ok_or_else(|| wmi::WMIError::ConvertVariantError("Related object has no InstanceID".into()))?;
             let query = format!("SELECT * FROM {relation} WHERE InstanceID = '{instance_id}'");
-            let mut related_object = self.connection
+            let mut related_object = self
+                .connection
                 .raw_query::<std::collections::HashMap<String, serde_json::Value>>(&query)?
                 .into_iter()
                 .next()
                 .ok_or_else(|| wmi::WMIError::ConvertVariantError(format!("Related object {instance_id} not found").into()))?;
             let authority = job_path.split_once(':').map(|(authority, _)| authority).unwrap_or_default();
-                let key = if relation == "Msvm_VirtualSystemReferencePoint" {
-                    let virtual_system_identifier = related_object
-                        .get("VirtualSystemIdentifier")
-                        .and_then(serde_json::Value::as_str)
-                        .ok_or_else(|| wmi::WMIError::ConvertVariantError("Related reference point has no VirtualSystemIdentifier".into()))?;
-                    format!(r#"InstanceID="{instance_id}",VirtualSystemIdentifier="{virtual_system_identifier}""#)
-                } else {
-                    format!(r#"InstanceID="{instance_id}""#)
-                };
-            related_object.insert(
-                "__Path".to_owned(),
-                    serde_json::Value::String(format!(r#"{authority}:{relation}.{key}"#)),
-            );
+            let key = if relation == "Msvm_VirtualSystemReferencePoint" {
+                let virtual_system_identifier = related_object
+                    .get("VirtualSystemIdentifier")
+                    .and_then(serde_json::Value::as_str)
+                    .ok_or_else(|| wmi::WMIError::ConvertVariantError("Related reference point has no VirtualSystemIdentifier".into()))?;
+                format!(r#"InstanceID="{instance_id}",VirtualSystemIdentifier="{virtual_system_identifier}""#)
+            } else {
+                format!(r#"InstanceID="{instance_id}""#)
+            };
+            related_object.insert("__Path".to_owned(), serde_json::Value::String(format!(r#"{authority}:{relation}.{key}"#)));
             related_object
         };
-        serde_json::from_value(serde_json::Value::Object(related_object.into_iter().collect())).map_err(|error| {
-            wmi::WMIError::ConvertVariantError(format!("Failed to deserialize related object: {error}").into())
-        })
+        serde_json::from_value(serde_json::Value::Object(related_object.into_iter().collect())).map_err(|error| wmi::WMIError::ConvertVariantError(format!("Failed to deserialize related object: {error}").into()))
     }
 }
 

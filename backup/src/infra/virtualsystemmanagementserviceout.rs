@@ -3,6 +3,7 @@ use wmi::WMIDateTime;
 
 #[derive(Debug, Deserialize)]
 #[serde(rename = "Msvm_VirtualSystemManagementService")]
+#[allow(non_snake_case)]
 pub(crate) struct VirtualSystemManagementServiceOut {
     pub(super) AvailableRequestedStates: Option<Vec<u16>>, // r
     pub(super) Caption: String,                            // r

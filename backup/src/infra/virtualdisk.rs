@@ -1,11 +1,11 @@
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-
-use windows::Win32::Foundation;
+use windows::Win32::Foundation::*;
 use windows::Win32::Storage::FileSystem::{self, CopyFileW, CreateFileW, ReadFile, SetFilePointerEx, WriteFile};
-use windows::Win32::Storage::Vhd;
+use windows::Win32::Storage::Vhd::{self, OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_PARAMETERS, OPEN_VIRTUAL_DISK_PARAMETERS_0, VIRTUAL_STORAGE_TYPE};
 use windows::Win32::Storage::Vhd::{GetVirtualDiskInformation, OpenVirtualDisk, QueryChangesVirtualDisk, SetVirtualDiskInformation};
-use windows::core;
+use windows::core::PCWSTR;
+use crate::infra::VirtualHardDiskSettingData;
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub(crate) struct ChangedRange {
@@ -15,22 +15,53 @@ pub(crate) struct ChangedRange {
 
 /// A safe RAII wrapper that automatically manages the Virtual Disk lifecycle.
 pub(crate) struct VirtualDisk {
-    handle: Foundation::HANDLE,
+    handle: HANDLE,
 }
 
 impl VirtualDisk {
-    pub(crate) fn copy_file<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q) -> core::Result<()> {
-        let source = wide_path(source);
-        let destination = wide_path(destination);
-        unsafe { CopyFileW(core::PCWSTR::from_raw(source.as_ptr()), core::PCWSTR::from_raw(destination.as_ptr()), false) }
+    pub(crate) fn open(virtual_hard_disk_setting_data: &VirtualHardDiskSettingData) -> std::result::Result<Self, windows::core::Error> {
+        Self::open_path(OsStr::new(virtual_hard_disk_setting_data.path.as_str()))
     }
 
-    pub(crate) fn copy_ranges<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q, ranges: &[ChangedRange]) -> core::Result<u64> {
+    pub(crate) fn open_path<P: AsRef<OsStr>>(path: P) -> std::result::Result<Self, windows::core::Error> {
+        let virtual_storage_type = VIRTUAL_STORAGE_TYPE {
+            DeviceId: Vhd::VIRTUAL_STORAGE_TYPE_DEVICE_VHDX,
+            VendorId: Vhd::VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT,
+        };
+        let open_virtual_disk_parameters = OPEN_VIRTUAL_DISK_PARAMETERS {
+            Version: Vhd::OPEN_VIRTUAL_DISK_VERSION_2,
+            Anonymous: OPEN_VIRTUAL_DISK_PARAMETERS_0 {
+                Version2: Vhd::OPEN_VIRTUAL_DISK_PARAMETERS_0_1 {
+                    GetInfoOnly: false.into(),
+                    ReadOnly: true.into(),
+                    ResiliencyGuid: Default::default(),
+                },
+            },
+        };
+        let mut handle = HANDLE::default();
+        let path = wide_path(path);
+        unsafe {
+            OpenVirtualDisk(&virtual_storage_type, PCWSTR(path.as_ptr()), Vhd::VIRTUAL_DISK_ACCESS_NONE, OPEN_VIRTUAL_DISK_FLAG_NONE, Some(&open_virtual_disk_parameters), &mut handle).ok()?;
+        }
+        Ok(Self { handle })
+    }
+
+    pub(crate) async fn virtual_disk_changes(&self, change_tracking_id: &OsStr, bytes: u64) -> std::result::Result<Vec<ChangedRange>, windows::core::Error> {
+        unimplemented!("QueryChangesVirtualDisk is not yet implemented")
+    }
+
+    pub(crate) fn copy_file<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q) -> std::result::Result<(), windows::core::Error> {
         let source = wide_path(source);
         let destination = wide_path(destination);
-        let source = unsafe { CreateFileW(core::PCWSTR::from_raw(source.as_ptr()), FileSystem::FILE_GENERIC_READ.0, FileSystem::FILE_SHARE_READ, None, FileSystem::OPEN_EXISTING, FileSystem::FILE_ATTRIBUTE_NORMAL, None)? };
+        unsafe { CopyFileW(PCWSTR::from_raw(source.as_ptr()), PCWSTR::from_raw(destination.as_ptr()), false) }
+    }
+
+    pub(crate) fn copy_ranges<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q, ranges: &[ChangedRange]) -> std::result::Result<u64, windows::core::Error> {
+        let source = wide_path(source);
+        let destination = wide_path(destination);
+        let source = unsafe { CreateFileW(PCWSTR::from_raw(source.as_ptr()), FileSystem::FILE_GENERIC_READ.0, FileSystem::FILE_SHARE_READ, None, FileSystem::OPEN_EXISTING, FileSystem::FILE_ATTRIBUTE_NORMAL, None)? };
         let source = FileHandle(source);
-        let destination = unsafe { CreateFileW(core::PCWSTR::from_raw(destination.as_ptr()), FileSystem::FILE_GENERIC_WRITE.0, FileSystem::FILE_SHARE_READ, None, FileSystem::CREATE_ALWAYS, FileSystem::FILE_ATTRIBUTE_NORMAL, None)? };
+        let destination = unsafe { CreateFileW(PCWSTR::from_raw(destination.as_ptr()), FileSystem::FILE_GENERIC_WRITE.0, FileSystem::FILE_SHARE_READ, None, FileSystem::CREATE_ALWAYS, FileSystem::FILE_ATTRIBUTE_NORMAL, None)? };
         let destination = FileHandle(destination);
         let mut copied = 0u64;
         let mut buffer = vec![0u8; 1024 * 1024];
@@ -47,14 +78,14 @@ impl VirtualDisk {
                     ReadFile(source.0, Some(&mut buffer[..requested as usize]), Some(&mut read), None)?;
                 }
                 if read == 0 {
-                    return Err(core::Error::from_thread());
+                    return Err(windows::core::Error::from_thread());
                 }
                 let mut written = 0u32;
                 unsafe {
                     WriteFile(destination.0, Some(&buffer[..read as usize]), Some(&mut written), None)?;
                 }
                 if written != read {
-                    return Err(core::Error::from_thread());
+                    return Err(windows::core::Error::from_thread());
                 }
                 remaining -= read as u64;
                 copied += read as u64;
@@ -64,36 +95,8 @@ impl VirtualDisk {
         Ok(copied)
     }
 
-    /// Opens a VHDX file cleanly, handling wide string allocation safely.
-    pub(crate) fn open<P: AsRef<OsStr>>(path: P) -> core::Result<Self> {
-        // Safe, native wide-string conversion with stack-allocated buffer
-        let mut encoded: Vec<u16> = path.as_ref().encode_wide().collect();
-        encoded.push(0);
-
-        let storage_type = Vhd::VIRTUAL_STORAGE_TYPE {
-            DeviceId: Vhd::VIRTUAL_STORAGE_TYPE_DEVICE_VHDX,
-            VendorId: Vhd::VIRTUAL_STORAGE_TYPE_VENDOR_MICROSOFT,
-        };
-
-        let open_params = Vhd::OPEN_VIRTUAL_DISK_PARAMETERS {
-            Version: Vhd::OPEN_VIRTUAL_DISK_VERSION_1,
-            Anonymous: Vhd::OPEN_VIRTUAL_DISK_PARAMETERS_0 {
-                Version1: Vhd::OPEN_VIRTUAL_DISK_PARAMETERS_0_0 { RWDepth: 0 },
-            },
-        };
-
-        let mut handle = Foundation::HANDLE::default();
-
-        // Encapsulate unsafe block strictly to the FFI boundary
-        unsafe {
-            OpenVirtualDisk(&storage_type, core::PCWSTR::from_raw(encoded.as_ptr()), Vhd::VIRTUAL_DISK_ACCESS_ALL, Vhd::OPEN_VIRTUAL_DISK_FLAG_NONE, Some(&open_params), &mut handle).ok()?;
-        }
-
-        Ok(Self { handle })
-    }
-
     /// Sets the state of Resilient Change Tracking (RCT)
-    pub(crate) fn set_change_tracking(&self, enabled: bool) -> core::Result<()> {
+    pub(crate) fn set_change_tracking(&self, enabled: bool) -> std::result::Result<(), windows::core::Error> {
         let disk_info = Vhd::SET_VIRTUAL_DISK_INFO {
             Version: Vhd::SET_VIRTUAL_DISK_INFO_CHANGE_TRACKING_STATE,
             Anonymous: Vhd::SET_VIRTUAL_DISK_INFO_0 { ChangeTrackingEnabled: enabled.into() },
@@ -106,7 +109,7 @@ impl VirtualDisk {
         Ok(())
     }
 
-    pub(crate) fn query_changes(&self, change_tracking_id: &OsStr, byte_length: u64) -> core::Result<Vec<ChangedRange>> {
+    pub(crate) fn query_changes(&self, change_tracking_id: &OsStr, byte_length: u64) -> std::result::Result<Vec<ChangedRange>, windows::core::Error> {
         let mut encoded: Vec<u16> = change_tracking_id.encode_wide().collect();
         encoded.push(0);
 
@@ -120,7 +123,7 @@ impl VirtualDisk {
             unsafe {
                 QueryChangesVirtualDisk(
                     self.handle,
-                    core::PCWSTR::from_raw(encoded.as_ptr()),
+                    PCWSTR::from_raw(encoded.as_ptr()),
                     byte_offset,
                     byte_length - byte_offset,
                     Vhd::QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE,
@@ -146,7 +149,7 @@ impl VirtualDisk {
         Ok(changes)
     }
 
-    pub(crate) fn change_tracking_state(&self) -> core::Result<(bool, String)> {
+    pub(crate) fn change_tracking_state(&self) -> std::result::Result<(bool, String), windows::core::Error> {
         let mut info = Vhd::GET_VIRTUAL_DISK_INFO {
             Version: Vhd::GET_VIRTUAL_DISK_INFO_CHANGE_TRACKING_STATE,
             Anonymous: Vhd::GET_VIRTUAL_DISK_INFO_0 { ChangeTrackingState: Default::default() },
@@ -169,24 +172,23 @@ fn wide_path<P: AsRef<OsStr>>(path: P) -> Vec<u16> {
     encoded
 }
 
-struct FileHandle(Foundation::HANDLE);
+struct FileHandle(HANDLE);
 
 impl Drop for FileHandle {
     fn drop(&mut self) {
         if !self.0.is_invalid() {
             unsafe {
-                let _ = Foundation::CloseHandle(self.0);
+                let _ = CloseHandle(self.0);
             }
         }
     }
 }
 
-/// The Drop trait guarantees the handle closes even if a panic or error happens later.
 impl Drop for VirtualDisk {
     fn drop(&mut self) {
         if !self.handle.is_invalid() {
             unsafe {
-                let _ = Foundation::CloseHandle(self.handle);
+                let _ = CloseHandle(self.handle);
             }
         }
     }

@@ -4,6 +4,7 @@ use crate::infra::*;
 use crate::model::VirtualMachineId;
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)]
 pub struct VirtualMachine {
     available_requested_states: Vec<RequestedState>,
     caption: String,

@@ -48,7 +48,7 @@ impl BackupService {
 
         let result = (|| -> Result<(), Error> {
             for (index, source_path) in disk_paths.iter().enumerate() {
-                let disk = VirtualDisk::open(source_path)?;
+                let disk = VirtualDisk::open_path(source_path)?;
                 disk.set_change_tracking(true)?;
                 let (enabled, current_id) = disk.change_tracking_state()?;
                 if !enabled || current_id.is_empty() {
@@ -225,44 +225,63 @@ impl BackupService {
         let snapshot = self.snapshot_service.create(&virtual_machine, Some((&snapshot_settings).into()), request.snapshot_type, None).await?;
         log::debug!("Created backup snapshot {snapshot:#?} for virtual machine name {virtual_machine_name}");
 
-        let storage_allocation_setting_data = self.snapshot_service.storage_allocation_setting_data(&snapshot).await?;
-        log::debug!("StorageAllocationSettingData returned for snapshot {}: {storage_allocation_setting_data:#?}", snapshot.path.as_str(),);
-        let mut virtual_hard_disk_settings = Vec::new();
-        for storage_allocation in storage_allocation_setting_data {
-            if !storage_allocation.resource_sub_type.contains("Virtual Hard Disk") {
-                continue;
+        let result = async {
+            let storage_allocation_setting_data = self.snapshot_service.storage_allocation_setting_data(&snapshot).await?;
+            log::debug!("StorageAllocationSettingData returned for snapshot {}: {storage_allocation_setting_data:#?}", snapshot.path.as_str(),);
+            let mut virtual_hard_disk_settings = Vec::new();
+            for storage_allocation in storage_allocation_setting_data {
+                if !storage_allocation.resource_sub_type.contains("Virtual Hard Disk") {
+                    continue;
+                }
+                for host_resource in &storage_allocation.host_resource {
+                    let path = host_resource.to_string_lossy().into_owned();
+                    let virtual_hard_disk = self.image_management_service.get_virtual_hard_disk_setting_data(&path).await?;
+                    virtual_hard_disk_settings.push(virtual_hard_disk);
+                }
             }
-            for host_resource in &storage_allocation.host_resource {
-                let path = host_resource.to_string_lossy().into_owned();
-                let virtual_hard_disk = self.image_management_service.get_virtual_hard_disk_setting_data(&path).await?;
-                virtual_hard_disk_settings.push(virtual_hard_disk);
+            log::debug!("Virtual hard disk settings returned for snapshot {}: {virtual_hard_disk_settings:#?}", snapshot.path.as_str());
+
+            // TODO: Locate the historic baseline RCT ID
+            // TODO: If full backup, then no ID
+            // TODO: If incremental backup, then use the historic baseline RCT ID
+
+            for virtual_hard_disk_setting in &virtual_hard_disk_settings {
+                log::debug!("Opening virtual hard disk {}", virtual_hard_disk_setting.path.as_str());
+                let _virtual_disk = VirtualDisk::open(virtual_hard_disk_setting)?;
+                // TODO: Query the Change Map via QueryChangesVirtualDisk
+
+            }
+
+            // TODO: Stream, Chunk (FastCDC), and Compress (zstd)
+            // TODO: Seal and Transition to Reference Point
+
+            let reference_point_settings = ReferencePointSettings {
+                properties: vec![ReferencePointProperty {
+                    name: "ConsistencyLevel".into(),
+                    value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
+                }],
+            };
+            let reference_point = self.snapshot_service.convert_to_reference_point(snapshot.clone(), Some((&reference_point_settings).into()), None).await?;
+            log::info!("Completed {} backup for virtual machine name {} with reference point {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name, reference_point.path.as_str());
+            Ok::<BackupResult, Error>(BackupResult {
+                backup_id: BackupId::new_v4(),
+                virtual_machine: virtual_machine,
+                destination: request.destination,
+                reference_point: reference_point,
+                completed_at: Utc::now(),
+            })
+        }
+        .await;
+
+        match result {
+            Ok(result) => Ok(result),
+            Err(error) => {
+                if let Err(cleanup_error) = self.snapshot_service.destroy(snapshot).await {
+                    log::error!("Failed to remove recovery snapshot after backup failure: {cleanup_error}");
+                }
+                Err(error)
             }
         }
-        log::debug!("Virtual hard disk settings returned for snapshot {}: {virtual_hard_disk_settings:#?}", snapshot.path.as_str());
-
-        // TODO: Locate the historic baseline RCT ID
-        // TODO: If full backup, then no ID
-        // TODO: If incremental backup, then use the historic baseline RCT ID
-        // TODO: Open the Virtual Disk Handle via Win32
-        // TODO: Query the Change Map via QueryChangesVirtualDisk
-        // TODO: Stream, Chunk (FastCDC), and Compress (zstd)
-        // TODO: Seal and Transition to Reference Point
-
-        let reference_point_settings = ReferencePointSettings {
-            properties: vec![ReferencePointProperty {
-                name: "ConsistencyLevel".into(),
-                value: ReferencePointPropertyValue::Uint8(u8::from(request.crash_consistency)),
-            }],
-        };
-        let reference_point = self.snapshot_service.convert_to_reference_point(snapshot, Some((&reference_point_settings).into()), None).await?;
-        log::info!("Completed {} backup for virtual machine name {} with reference point {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name, reference_point.path.as_str());
-        Ok(BackupResult {
-            backup_id: BackupId::new_v4(),
-            virtual_machine: virtual_machine,
-            destination: request.destination,
-            reference_point: reference_point,
-            completed_at: Utc::now(),
-        })
     }
 }
 
@@ -279,7 +298,7 @@ fn capture_changed_blocks(export_directory: &Path, base: Option<&VirtualSystemRe
     let mut byte_count = 0;
 
     for (index, disk_path) in disk_paths.iter().enumerate() {
-        let disk = VirtualDisk::open(disk_path)?;
+        let disk = VirtualDisk::open_path(disk_path)?;
         disk.set_change_tracking(true)?;
         let (enabled, current_id) = disk.change_tracking_state()?;
         if !enabled || current_id.is_empty() {

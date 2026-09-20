@@ -105,37 +105,7 @@ impl VirtualDisk {
     //     Ok(())
     // }
 
-    fn query_virtual_disk_range_changes(handle: HANDLE, change_tracking_id: &[u16], byte_offset: u64, byte_length: u64) -> std::result::Result<(Vec<VirtualDiskRange>, u64), windows::core::Error> {
-        let mut ranges = vec![Vhd::QUERY_CHANGES_VIRTUAL_DISK_RANGE::default(); 256];
-        let mut range_count = ranges.len() as u32;
-        let mut processed_length = 0u64;
-        unsafe {
-            QueryChangesVirtualDisk(
-                handle,
-                PCWSTR::from_raw(change_tracking_id.as_ptr()),
-                byte_offset,
-                byte_length,
-                QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE,
-                ranges.as_mut_ptr(),
-                &mut range_count,
-                &mut processed_length,
-            )
-            .ok()?;
-        }
-        ranges.truncate(range_count as usize);
-        Ok((
-            ranges
-                .into_iter()
-                .map(|range| VirtualDiskRange {
-                    byte_offset: range.ByteOffset,
-                    byte_length: range.ByteLength,
-                })
-                .collect(),
-            processed_length,
-        ))
-    }
-
-    pub(super) fn duplicate_handle(&self) -> std::result::Result<usize, windows::core::Error> {
+    pub(super) fn duplicate_handle(&self) -> std::result::Result<FileHandle, windows::core::Error> {
         let mut handle = HANDLE::default();
         unsafe {
             DuplicateHandle(
@@ -150,8 +120,38 @@ impl VirtualDisk {
             .ok()
             .ok_or_else(windows::core::Error::from_thread)?;
         }
-        Ok(handle.0 as usize)
+        Ok(FileHandle(handle))
     }
+}
+
+fn query_virtual_disk_range_changes(handle: FileHandle, change_tracking_id: &[u16], byte_offset: u64, byte_length: u64) -> std::result::Result<(Vec<VirtualDiskRange>, u64), windows::core::Error> {
+    let mut ranges = vec![Vhd::QUERY_CHANGES_VIRTUAL_DISK_RANGE::default(); 256];
+    let mut range_count = ranges.len() as u32;
+    let mut processed_length = 0u64;
+    unsafe {
+        QueryChangesVirtualDisk(
+            handle.0,
+            PCWSTR::from_raw(change_tracking_id.as_ptr()),
+            byte_offset,
+            byte_length,
+            QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE,
+            ranges.as_mut_ptr(),
+            &mut range_count,
+            &mut processed_length,
+        )
+        .ok()?;
+    }
+    ranges.truncate(range_count as usize);
+    Ok((
+        ranges
+            .into_iter()
+            .map(|range| VirtualDiskRange {
+                byte_offset: range.ByteOffset,
+                byte_length: range.ByteLength,
+            })
+            .collect(),
+        processed_length,
+    ))
 }
 
 fn wide_path<P: AsRef<OsStr>>(path: P) -> Vec<u16> {

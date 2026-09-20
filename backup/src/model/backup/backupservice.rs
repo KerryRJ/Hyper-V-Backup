@@ -4,11 +4,9 @@ use crate::model::*;
 use chrono::{Local, Utc};
 use futures::StreamExt;
 use futures::stream;
-use std::pin::Pin;
 use std::ffi::OsStr;
-use std::fs::File;
-use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 
 pub struct BackupService {
     snapshot_service: VirtualSystemSnapshotService,
@@ -113,6 +111,9 @@ impl BackupService {
         let virtual_machine = request.virtual_machine;
         let virtual_machine_name = virtual_machine.element_name.clone();
         let is_incremental = request.differential_backup_base.is_some();
+        let backup_kind = if is_incremental { "incremental" } else { "full" };
+        let backup_timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
+        let destination_directory = request.destination.join(&virtual_machine_name);
         log::info!("Starting {} backup for virtual machine name {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name);
         let snapshot_settings = SnapshotSettings {
             properties: vec![
@@ -147,21 +148,53 @@ impl BackupService {
             for (index, virtual_hard_disk_setting) in virtual_hard_disk_settings.iter().enumerate() {
                 log::debug!("Opening virtual hard disk {}", virtual_hard_disk_setting.path.as_str());
                 let virtual_disk = VirtualDisk::open(virtual_hard_disk_setting).await?;
-                let mut ranges: Pin<Box<dyn futures::Stream<Item = std::result::Result<VirtualDiskRange, windows::core::Error>> + '_>> = match differential_backup_base {
+                match differential_backup_base {
                     None => {
                         log::info!("No differential backup base; streaming full virtual disk {}", virtual_hard_disk_setting.path.as_str());
                         const FULL_DISK_RANGE_SIZE: u64 = 64 * 1024 * 1024;
-                        let disk_size = virtual_hard_disk_setting.max_internal_size();
-                        Box::pin(stream::unfold(0u64, move |byte_offset| async move {
+                        let disk_size = std::fs::metadata(virtual_hard_disk_setting.path.as_str())?.len();
+                        let mut ranges = Box::pin(stream::unfold(0u64, move |byte_offset| async move {
                             if byte_offset >= disk_size {
                                 return None;
                             }
                             let byte_length = FULL_DISK_RANGE_SIZE.min(disk_size - byte_offset);
                             Some((
-                                Ok(VirtualDiskRange { byte_offset, byte_length }),
+                                Ok::<VirtualDiskRange, windows::core::Error>(VirtualDiskRange { byte_offset, byte_length }),
                                 byte_offset + byte_length,
                             ))
-                        }))
+                        }));
+                        let virtual_disk_path = Path::new(virtual_hard_disk_setting.path.as_str());
+                        let virtual_disk_stem = virtual_disk_path
+                            .file_stem()
+                            .ok_or(Error::InvalidBackupRequest("virtual hard disk path has no file name"))?;
+                        let destination_file_name = match virtual_disk_path.extension() {
+                            Some(extension) => format!(
+                                "{}-{backup_kind}-{backup_timestamp}.{}",
+                                virtual_disk_stem.to_string_lossy(),
+                                extension.to_string_lossy()
+                            ),
+                            None => format!("{}-{backup_kind}-{backup_timestamp}", virtual_disk_stem.to_string_lossy()),
+                        };
+                        let destination_path = destination_directory.join(destination_file_name);
+                        tokio::fs::create_dir_all(&destination_directory).await?;
+                        let mut source = tokio::fs::File::open(virtual_hard_disk_setting.path.as_str()).await?;
+                        let source_length = source.metadata().await?.len();
+                        let mut destination_file = tokio::fs::File::create(&destination_path).await?;
+                        destination_file.set_len(source_length).await?;
+                        log::debug!("Streaming virtual disk {} to {}", virtual_hard_disk_setting.path.as_str(), destination_path.display());
+                        while let Some(range) = ranges.next().await {
+                            let range = range?;
+                            source.seek(std::io::SeekFrom::Start(range.byte_offset)).await?;
+                            destination_file.seek(std::io::SeekFrom::Start(range.byte_offset)).await?;
+                            let mut remaining = range.byte_length;
+                            let mut buffer = vec![0u8; 1024 * 1024];
+                            while remaining > 0 {
+                                let read_length = remaining.min(buffer.len() as u64) as usize;
+                                source.read_exact(&mut buffer[..read_length]).await?;
+                                destination_file.write_all(&buffer[..read_length]).await?;
+                                remaining -= read_length as u64;
+                            }
+                        }
                     }
                     Some(differential_backup_base) => {
                         let change_tracking_id = differential_backup_base
@@ -169,15 +202,17 @@ impl BackupService {
                             .get(index)
                             .ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
                         let change_tracking_id = change_tracking_id.to_string();
-                        Box::pin(virtual_disk.virtual_disk_changes(OsStr::new(&change_tracking_id), u64::MAX)?)
+                        let mut changed_ranges = virtual_disk.virtual_disk_changes(OsStr::new(&change_tracking_id), u64::MAX)?;
+                        while let Some(range) = changed_ranges.next().await {
+                            let range = range?;
+                            log::debug!(
+                                "Changed range {}..{} is ready for repository streaming",
+                                range.byte_offset,
+                                range.byte_offset + range.byte_length
+                            );
+                        }
+                        return Err(Error::BackupBackendUnavailable);
                     }
-                };
-                while let Some(range) = ranges.next().await {
-                    let range = range?;
-                    // TODO: Stream
-                    // TODO: Chunk (FastCDC)
-                    // TODO: Compress (zstd)
-                    // TODO: Deduplicate
                 }
             }
             // TODO: Seal and Transition to Reference Point

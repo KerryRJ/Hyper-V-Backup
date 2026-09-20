@@ -6,7 +6,8 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use tokio::task::JoinHandle;
 
-use super::{VirtualDiskRange, VirtualDisk};
+use super::virtualdisk::{query_virtual_disk_range_changes, wide_path, VirtualDisk};
+use super::VirtualDiskRange;
 
 pub(super) struct ChangedRangeStream<'a> {
     disk: &'a VirtualDisk,
@@ -23,7 +24,7 @@ impl<'a> ChangedRangeStream<'a> {
     pub(super) fn new(disk: &'a VirtualDisk, change_tracking_id: &OsStr, byte_length: u64) -> Self {
         Self {
             disk,
-            change_tracking_id: super::wide_path(change_tracking_id),
+            change_tracking_id: wide_path(change_tracking_id),
             byte_length,
             byte_offset: 0,
             ranges: Vec::new(),
@@ -89,7 +90,7 @@ impl Stream for ChangedRangeStream<'_> {
             let byte_offset = self.byte_offset;
             let byte_length = self.byte_length - byte_offset;
             self.worker = Some(tokio::task::spawn_blocking(move || {
-                super::query_virtual_disk_range_changes(handle, &change_tracking_id, byte_offset, byte_length)
+                query_virtual_disk_range_changes(handle, &change_tracking_id, byte_offset, byte_length)
             }));
         }
     }

@@ -7,17 +7,10 @@ use windows::Win32::Storage::Vhd::{self, OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTU
 use windows::Win32::Storage::Vhd::{GetVirtualDiskInformation, OpenVirtualDisk, QueryChangesVirtualDisk, SetVirtualDiskInformation};
 use windows::Win32::System::Threading::GetCurrentProcess;
 use windows::core::PCWSTR;
+use super::changedrangestream::ChangedRangeStream;
+use super::filehandle::FileHandle;
 use crate::infra::VirtualHardDiskSettingData;
-
-#[path = "changedrangestream.rs"]
-mod changedrangestream;
-#[path = "filehandle.rs"]
-mod filehandle;
-#[path = "virtualdiskrange.rs"]
-mod virtualdiskrange;
-use filehandle::FileHandle;
-use changedrangestream::ChangedRangeStream;
-pub(crate) use virtualdiskrange::VirtualDiskRange;
+pub(crate) use super::virtualdiskrange::VirtualDiskRange;
 
 /// A safe RAII wrapper that automatically manages the Virtual Disk lifecycle.
 pub(crate) struct VirtualDisk {
@@ -105,7 +98,7 @@ impl VirtualDisk {
     //     Ok(())
     // }
 
-    pub(super) fn duplicate_handle(&self) -> std::result::Result<FileHandle, windows::core::Error> {
+    pub(crate) fn duplicate_handle(&self) -> std::result::Result<FileHandle, windows::core::Error> {
         let mut handle = HANDLE::default();
         unsafe {
             DuplicateHandle(
@@ -124,7 +117,7 @@ impl VirtualDisk {
     }
 }
 
-fn query_virtual_disk_range_changes(handle: FileHandle, change_tracking_id: &[u16], byte_offset: u64, byte_length: u64) -> std::result::Result<(Vec<VirtualDiskRange>, u64), windows::core::Error> {
+pub(crate) fn query_virtual_disk_range_changes(handle: FileHandle, change_tracking_id: &[u16], byte_offset: u64, byte_length: u64) -> std::result::Result<(Vec<VirtualDiskRange>, u64), windows::core::Error> {
     let mut ranges = vec![Vhd::QUERY_CHANGES_VIRTUAL_DISK_RANGE::default(); 256];
     let mut range_count = ranges.len() as u32;
     let mut processed_length = 0u64;
@@ -154,7 +147,7 @@ fn query_virtual_disk_range_changes(handle: FileHandle, change_tracking_id: &[u1
     ))
 }
 
-fn wide_path<P: AsRef<OsStr>>(path: P) -> Vec<u16> {
+pub(crate) fn wide_path<P: AsRef<OsStr>>(path: P) -> Vec<u16> {
     let mut encoded: Vec<u16> = path.as_ref().encode_wide().collect();
     encoded.push(0);
     encoded

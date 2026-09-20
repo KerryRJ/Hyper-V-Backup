@@ -1,6 +1,6 @@
-use crate::infra::VirtualDiskRange;
 use crate::model::{BackupId, BackupProgress, Error, VirtualMachineId};
 use chrono::{DateTime, Utc};
+use futures::{Stream, StreamExt};
 use rusqlite::{Connection, OptionalExtension, params};
 use sha2::{Digest, Sha256};
 use std::path::{Path, PathBuf};
@@ -133,9 +133,8 @@ impl BackupRepository {
         while offset < logical_size {
             let length = CHUNK_SIZE.min(logical_size - offset) as usize;
             let mut bytes = vec![0; length];
-            source.seek(std::io::SeekFrom::Start(offset)).await?;
             source.read_exact(&mut bytes).await?;
-            let chunk_id = self.put_chunk(&bytes).await?;
+            let chunk_id = self.put_chunk(bytes).await?;
             chunks.push(ChunkExtent { offset, length: length as u64, chunk_id });
             offset += length as u64;
             *completed_bytes += length as u64;
@@ -144,22 +143,30 @@ impl BackupRepository {
         Ok(DiskManifest { disk_id, logical_size, chunks })
     }
 
-    pub(crate) async fn store_incremental_disk(&self, path: &Path, disk_id: String, logical_size: u64, parent: &DiskManifest, changed_ranges: &[VirtualDiskRange], completed_bytes: &mut u64, total_bytes: u64, progress_sender: Option<&tokio::sync::watch::Sender<BackupProgress>>) -> Result<DiskManifest, Error> {
+    pub(crate) async fn store_incremental_disk<S>(&self, path: &Path, disk_id: String, logical_size: u64, parent: &DiskManifest, changed_ranges: S, completed_bytes: &mut u64, total_bytes: u64, progress_sender: Option<&tokio::sync::watch::Sender<BackupProgress>>) -> Result<DiskManifest, Error>
+    where
+        S: Stream<Item = std::result::Result<crate::infra::VirtualDiskRange, windows::core::Error>>,
+    {
         if parent.disk_id != disk_id || parent.logical_size != logical_size {
             return Err(Error::InvalidBackupRequest("differential backup base does not match the current virtual disk"));
         }
         let mut source = tokio::fs::File::open(path).await?;
+        let mut changed_ranges = Box::pin(changed_ranges);
+        let mut next_range = changed_ranges.next().await.transpose()?;
         let mut chunks = Vec::with_capacity(parent.chunks.len());
         let mut offset = 0;
         while offset < logical_size {
             let length = CHUNK_SIZE.min(logical_size - offset);
             let parent_chunk = parent.chunks.iter().find(|chunk| chunk.offset == offset && chunk.length == length).ok_or(Error::InvalidBackupRequest("differential backup base has incomplete disk chunks"))?;
-            let affected = changed_ranges.iter().any(|range| range.byte_offset < offset + length && offset < range.byte_offset + range.byte_length);
+            while next_range.as_ref().is_some_and(|range| range.byte_offset.saturating_add(range.byte_length) <= offset) {
+                next_range = changed_ranges.next().await.transpose()?;
+            }
+            let affected = next_range.as_ref().is_some_and(|range| range.byte_offset < offset + length && offset < range.byte_offset.saturating_add(range.byte_length));
             let chunk_id = if affected {
                 let mut bytes = vec![0; length as usize];
                 source.seek(std::io::SeekFrom::Start(offset)).await?;
                 source.read_exact(&mut bytes).await?;
-                self.put_chunk(&bytes).await?
+                self.put_chunk(bytes).await?
             } else {
                 parent_chunk.chunk_id.clone()
             };
@@ -309,39 +316,42 @@ impl BackupRepository {
                 params![manifest_id.to_string(), sqlite_integer(u64::from(manifest.schema_version))?, manifest.reference_point.path, manifest.reference_point.instance_id,],
             )
             .map_err(repository_error)?;
+        let mut tracking_statement = transaction
+            .prepare_cached(
+                "INSERT OR IGNORE INTO reference_point_tracking_ids (manifest_id, ordinal, tracking_id)
+                 VALUES (?1, ?2, ?3)",
+            )
+            .map_err(repository_error)?;
         for (ordinal, tracking_id) in manifest.reference_point.resilient_change_tracking_identifiers.iter().enumerate() {
-            transaction
-                .execute(
-                    "INSERT OR IGNORE INTO reference_point_tracking_ids (manifest_id, ordinal, tracking_id)
-                     VALUES (?1, ?2, ?3)",
-                    params![manifest_id.to_string(), sqlite_integer(ordinal as u64)?, tracking_id],
-                )
-                .map_err(repository_error)?;
+            tracking_statement.execute(params![manifest_id.to_string(), sqlite_integer(ordinal as u64)?, tracking_id]).map_err(repository_error)?;
         }
+        let mut disk_statement = transaction
+            .prepare_cached(
+                "INSERT OR IGNORE INTO disk_manifests (manifest_id, disk_id, logical_size)
+                 VALUES (?1, ?2, ?3)",
+            )
+            .map_err(repository_error)?;
+        let mut chunk_statement = transaction
+            .prepare_cached(
+                "INSERT OR IGNORE INTO disk_chunks
+                 (manifest_id, disk_id, byte_offset, byte_length, chunk_id)
+                 VALUES (?1, ?2, ?3, ?4, ?5)",
+            )
+            .map_err(repository_error)?;
         for disk in &manifest.disks {
-            transaction
-                .execute(
-                    "INSERT OR IGNORE INTO disk_manifests (manifest_id, disk_id, logical_size)
-                     VALUES (?1, ?2, ?3)",
-                    params![manifest_id.to_string(), disk.disk_id, sqlite_integer(disk.logical_size)?],
-                )
-                .map_err(repository_error)?;
+            disk_statement.execute(params![manifest_id.to_string(), disk.disk_id, sqlite_integer(disk.logical_size)?]).map_err(repository_error)?;
             for chunk in &disk.chunks {
-                transaction
-                    .execute(
-                        "INSERT OR IGNORE INTO disk_chunks
-                         (manifest_id, disk_id, byte_offset, byte_length, chunk_id)
-                         VALUES (?1, ?2, ?3, ?4, ?5)",
-                        params![manifest_id.to_string(), disk.disk_id, sqlite_integer(chunk.offset)?, sqlite_integer(chunk.length)?, chunk.chunk_id.to_string(),],
-                    )
-                    .map_err(repository_error)?;
+                chunk_statement.execute(params![manifest_id.to_string(), disk.disk_id, sqlite_integer(chunk.offset)?, sqlite_integer(chunk.length)?, chunk.chunk_id.to_string(),]).map_err(repository_error)?;
             }
         }
+        drop(chunk_statement);
+        drop(disk_statement);
+        drop(tracking_statement);
         transaction.commit().map_err(repository_error)
     }
 
-    async fn put_chunk(&self, bytes: &[u8]) -> Result<ChunkId, Error> {
-        let chunk_id = hash_bytes(bytes);
+    async fn put_chunk(&self, bytes: Vec<u8>) -> Result<ChunkId, Error> {
+        let chunk_id = hash_bytes(&bytes);
         let path = self.object_path(&chunk_id);
         if tokio::fs::try_exists(&path).await? {
             return Ok(chunk_id);
@@ -349,7 +359,10 @@ impl BackupRepository {
         if tokio::fs::try_exists(self.legacy_object_path(&chunk_id)).await? {
             return Ok(chunk_id);
         }
-        let compressed = zstd::encode_all(bytes, 3).map_err(|error| Error::Repository(format!("failed to compress chunk {chunk_id}: {error}")))?;
+        let compressed = tokio::task::spawn_blocking(move || zstd::encode_all(bytes.as_slice(), 3))
+            .await
+            .map_err(|error| Error::Repository(format!("chunk compression worker failed: {error}")))?
+            .map_err(|error| Error::Repository(format!("failed to compress chunk {chunk_id}: {error}")))?;
         if let Some(parent) = path.parent() {
             tokio::fs::create_dir_all(parent).await?;
         }
@@ -430,8 +443,8 @@ mod tests {
     async fn stores_duplicate_chunks_once_and_round_trips_manifest() {
         let root = std::env::temp_dir().join(format!("backup-repository-{}", uuid::Uuid::new_v4()));
         let repository = BackupRepository::open(&root).await.expect("repository should open");
-        let first = repository.put_chunk(b"same content").await.expect("first chunk should store");
-        let second = repository.put_chunk(b"same content").await.expect("duplicate chunk should store");
+        let first = repository.put_chunk(b"same content".to_vec()).await.expect("first chunk should store");
+        let second = repository.put_chunk(b"same content".to_vec()).await.expect("duplicate chunk should store");
         assert_eq!(first, second);
         assert_eq!(repository.read_chunk(&first).await.expect("chunk should round-trip"), b"same content");
 
@@ -472,10 +485,11 @@ mod tests {
         let root = std::env::temp_dir().join(format!("backup-repository-{}", uuid::Uuid::new_v4()));
         let repository = BackupRepository::open(&root).await.expect("repository should open");
         let source = vec![b'a'; CHUNK_SIZE as usize];
-        let chunk_id = repository.put_chunk(&source).await.expect("chunk should store");
+        let source_length = source.len();
+        let chunk_id = repository.put_chunk(source.clone()).await.expect("chunk should store");
         let stored_size = tokio::fs::metadata(repository.object_path(&chunk_id)).await.expect("compressed object should exist").len();
 
-        assert!(stored_size < source.len() as u64);
+        assert!(stored_size < source_length as u64);
         assert_eq!(repository.read_chunk(&chunk_id).await.expect("compressed chunk should round-trip"), source);
         let _ = tokio::fs::remove_dir_all(root).await;
     }
@@ -494,7 +508,16 @@ mod tests {
         changed[CHUNK_SIZE as usize] = b'b';
         tokio::fs::write(&source_path, &changed).await.expect("changed source should be written");
         let child = repository
-            .store_incremental_disk(&source_path, "disk-1".into(), changed.len() as u64, &parent, &[VirtualDiskRange { byte_offset: CHUNK_SIZE, byte_length: 1 }], &mut completed_bytes, changed.len() as u64, None)
+            .store_incremental_disk(
+                &source_path,
+                "disk-1".into(),
+                changed.len() as u64,
+                &parent,
+                futures::stream::iter([Ok::<_, windows::core::Error>(VirtualDiskRange { byte_offset: CHUNK_SIZE, byte_length: 1 })]),
+                &mut completed_bytes,
+                changed.len() as u64,
+                None,
+            )
             .await
             .expect("child disk should store");
 

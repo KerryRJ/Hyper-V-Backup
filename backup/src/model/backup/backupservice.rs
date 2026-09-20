@@ -2,7 +2,6 @@ use super::*;
 use crate::infra::*;
 use crate::model::*;
 use chrono::Utc;
-use futures::StreamExt;
 use std::ffi::OsStr;
 use std::path::Path;
 
@@ -174,13 +173,7 @@ impl BackupService {
                             .ok_or(Error::InvalidBackupRequest("parent manifest is missing a virtual disk"))?;
                         let change_tracking_id = differential_backup_base.resilient_change_tracking_identifiers.get(index).ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
                         let change_tracking_id = change_tracking_id.to_string();
-                        let mut changed_ranges = virtual_disk.virtual_disk_changes(OsStr::new(&change_tracking_id), u64::MAX)?;
-                        let mut changed_ranges_for_repository = Vec::new();
-                        while let Some(range) = changed_ranges.next().await {
-                            let range = range?;
-                            log::debug!("Changed range {}..{} is ready for repository streaming", range.byte_offset, range.byte_offset + range.byte_length);
-                            changed_ranges_for_repository.push(range);
-                        }
+                        let changed_ranges = virtual_disk.virtual_disk_changes(OsStr::new(&change_tracking_id), u64::MAX)?;
                         let disk_size = std::fs::metadata(virtual_hard_disk_setting.path.as_str())?.len();
                         let disk_manifest = repository
                             .store_incremental_disk(
@@ -188,7 +181,7 @@ impl BackupService {
                                 virtual_hard_disk_setting.virtual_disk_id().to_string(),
                                 disk_size,
                                 parent_disk,
-                                &changed_ranges_for_repository,
+                                changed_ranges,
                                 &mut completed_bytes,
                                 total_bytes,
                                 request.progress_sender.as_ref(),

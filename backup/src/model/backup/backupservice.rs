@@ -214,15 +214,17 @@ impl BackupService {
                 },
             };
             let completed_at = Utc::now();
-            let duration_ms = u64::try_from(elapsed.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let duration = elapsed.elapsed();
+            let duration_ms = u64::try_from(duration.as_millis()).unwrap_or(u64::MAX);
             let manifest_id = repository.write_manifest(&manifest, started_at, completed_at, duration_ms).await?;
             if let Some(progress_sender) = request.progress_sender.as_ref() {
                 let _ = progress_sender.send(BackupProgress::new(total_bytes, total_bytes));
             }
             log::info!(
-                "Completed {} backup for virtual machine name {} in {} ms with reference point {}",
+                "Completed {} backup for virtual machine name {} in {:?} ({} ms) with reference point {}",
                 if is_incremental { "incremental" } else { "full" },
                 virtual_machine_name,
+                duration,
                 duration_ms,
                 reference_point.path.as_str()
             );

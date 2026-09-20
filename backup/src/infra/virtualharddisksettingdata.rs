@@ -19,7 +19,7 @@ pub(crate) struct VirtualHardDiskSettingData {
     parent_identifier: Option<ParentId>,
     parent_path: Path,
     parent_timestamp: Option<chrono::DateTime<chrono::Utc>>,
-    path: Path,
+    pub(crate) path: Path,
     physical_sector_size: u32,
     pmem_address_abstraction_type: PmemAddressAbstractionType,
     _type: Type,
@@ -53,6 +53,10 @@ impl fmt::Debug for VirtualHardDiskSettingData {
 }
 
 impl VirtualHardDiskSettingData {
+    pub(crate) fn max_internal_size(&self) -> u64 {
+        self.max_internal_size
+    }
+
     pub(super) fn instance_id(&self) -> &str {
         self.instance_id.as_ref()
     }

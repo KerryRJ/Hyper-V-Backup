@@ -97,10 +97,12 @@ impl ImageManagementService {
                 .ok_or_else(|| wmi::WMIError::ConvertVariantError("GetVirtualHardDiskSettingData returned no output".into()))?;
             let return_value: u32 = output.get_property("ReturnValue").and_then(TryInto::try_into)?;
             match return_value {
-                0 => return match output.get_property("SettingData")? {
-                    wmi::Variant::String(setting_data) => VirtualHardDiskSettingData::from_embedded_xml(&setting_data).map_err(|error| wmi::WMIError::ConvertVariantError(format!("GetVirtualHardDiskSettingData setting data deserialization failed: {error}").into())),
-                    value => Err(wmi::WMIError::ConvertVariantError(format!("GetVirtualHardDiskSettingData returned unexpected SettingData value: {value:?}").into())),
-                },
+                0 => {
+                    return match output.get_property("SettingData")? {
+                        wmi::Variant::String(setting_data) => VirtualHardDiskSettingData::from_embedded_xml(&setting_data).map_err(|error| wmi::WMIError::ConvertVariantError(format!("GetVirtualHardDiskSettingData setting data deserialization failed: {error}").into())),
+                        value => Err(wmi::WMIError::ConvertVariantError(format!("GetVirtualHardDiskSettingData returned unexpected SettingData value: {value:?}").into())),
+                    };
+                }
                 4096 => {
                     let job_path = match output.get_property("Job")? {
                         wmi::Variant::String(path) => path,

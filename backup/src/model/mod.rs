@@ -12,6 +12,7 @@ mod virtualmachine;
 mod virtualmachineid;
 
 pub use backup::BackupId;
+pub use backup::BackupProgress;
 pub use backup::BackupRequest;
 pub use backupschedule::{BackupSchedule, ScheduleId};
 pub use error::Error;

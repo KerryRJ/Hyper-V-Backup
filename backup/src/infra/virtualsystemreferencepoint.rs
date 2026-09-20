@@ -55,6 +55,14 @@ impl<'de> Deserialize<'de> for VirtualSystemReferencePoint {
 }
 
 impl VirtualSystemReferencePoint {
+    pub(crate) fn instance_id_string(&self) -> String {
+        self.instance_id.as_ref().to_owned()
+    }
+
+    pub(crate) fn resilient_change_tracking_identifier_strings(&self) -> Vec<String> {
+        self.resilient_change_tracking_identifiers.iter().map(ToString::to_string).collect()
+    }
+
     pub(crate) fn reference_point_id(&self) -> Result<ReferencePointId, crate::model::Error> {
         let reference_point_id = ReferencePointId::parse_str(self.instance_id.as_ref()).map_err(|error| match error {
             crate::model::ReferencePointIdError::InvalidUuid(error) => crate::model::Error::Uuid(error),

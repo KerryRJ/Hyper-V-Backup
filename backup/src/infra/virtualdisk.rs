@@ -1,16 +1,16 @@
+use super::changedrangestream::ChangedRangeStream;
+use super::filehandle::FileHandle;
+pub(crate) use super::virtualdiskrange::VirtualDiskRange;
+use crate::infra::VirtualHardDiskSettingData;
+use futures::Stream;
 use std::ffi::OsStr;
 use std::os::windows::ffi::OsStrExt;
-use futures::Stream;
 use windows::Win32::Foundation::*;
 use windows::Win32::Storage::FileSystem::{self, CopyFileW, CreateFileW, ReadFile, SetFilePointerEx, WriteFile};
 use windows::Win32::Storage::Vhd::{self, OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_PARAMETERS, OPEN_VIRTUAL_DISK_PARAMETERS_0, QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE, VIRTUAL_DISK_ACCESS_NONE, VIRTUAL_DISK_ACCESS_READ, VIRTUAL_STORAGE_TYPE};
 use windows::Win32::Storage::Vhd::{GetVirtualDiskInformation, OpenVirtualDisk, QueryChangesVirtualDisk, SetVirtualDiskInformation};
 use windows::Win32::System::Threading::GetCurrentProcess;
 use windows::core::PCWSTR;
-use super::changedrangestream::ChangedRangeStream;
-use super::filehandle::FileHandle;
-use crate::infra::VirtualHardDiskSettingData;
-pub(crate) use super::virtualdiskrange::VirtualDiskRange;
 
 /// A safe RAII wrapper that automatically manages the Virtual Disk lifecycle.
 pub(crate) struct VirtualDisk {
@@ -101,17 +101,7 @@ impl VirtualDisk {
     pub(crate) fn duplicate_handle(&self) -> std::result::Result<FileHandle, windows::core::Error> {
         let mut handle = HANDLE::default();
         unsafe {
-            DuplicateHandle(
-                GetCurrentProcess(),
-                self.handle,
-                GetCurrentProcess(),
-                &mut handle,
-                0,
-                false,
-                DUPLICATE_SAME_ACCESS,
-            )
-            .ok()
-            .ok_or_else(windows::core::Error::from_thread)?;
+            DuplicateHandle(GetCurrentProcess(), self.handle, GetCurrentProcess(), &mut handle, 0, false, DUPLICATE_SAME_ACCESS).ok().ok_or_else(windows::core::Error::from_thread)?;
         }
         Ok(FileHandle(handle))
     }
@@ -122,17 +112,7 @@ pub(crate) fn query_virtual_disk_range_changes(handle: FileHandle, change_tracki
     let mut range_count = ranges.len() as u32;
     let mut processed_length = 0u64;
     unsafe {
-        QueryChangesVirtualDisk(
-            handle.0,
-            PCWSTR::from_raw(change_tracking_id.as_ptr()),
-            byte_offset,
-            byte_length,
-            QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE,
-            ranges.as_mut_ptr(),
-            &mut range_count,
-            &mut processed_length,
-        )
-        .ok()?;
+        QueryChangesVirtualDisk(handle.0, PCWSTR::from_raw(change_tracking_id.as_ptr()), byte_offset, byte_length, QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE, ranges.as_mut_ptr(), &mut range_count, &mut processed_length).ok()?;
     }
     ranges.truncate(range_count as usize);
     Ok((

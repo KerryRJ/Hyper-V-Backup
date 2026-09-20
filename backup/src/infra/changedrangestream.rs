@@ -6,8 +6,8 @@ use std::task::{Context, Poll};
 use futures::Stream;
 use tokio::task::JoinHandle;
 
-use super::virtualdisk::{query_virtual_disk_range_changes, wide_path, VirtualDisk};
 use super::VirtualDiskRange;
+use super::virtualdisk::{VirtualDisk, query_virtual_disk_range_changes, wide_path};
 
 pub(super) struct ChangedRangeStream<'a> {
     disk: &'a VirtualDisk,
@@ -68,10 +68,7 @@ impl Stream for ChangedRangeStream<'_> {
                             }
                             Err(error) => {
                                 self.finished = true;
-                                return Poll::Ready(Some(Err(windows::core::Error::new(
-                                    windows::core::HRESULT(0x80004005u32 as i32),
-                                    format!("change query worker failed: {error}"),
-                                ))));
+                                return Poll::Ready(Some(Err(windows::core::Error::new(windows::core::HRESULT(0x80004005u32 as i32), format!("change query worker failed: {error}")))));
                             }
                         }
                     }
@@ -89,9 +86,7 @@ impl Stream for ChangedRangeStream<'_> {
             let change_tracking_id = self.change_tracking_id.clone();
             let byte_offset = self.byte_offset;
             let byte_length = self.byte_length - byte_offset;
-            self.worker = Some(tokio::task::spawn_blocking(move || {
-                query_virtual_disk_range_changes(handle, &change_tracking_id, byte_offset, byte_length)
-            }));
+            self.worker = Some(tokio::task::spawn_blocking(move || query_virtual_disk_range_changes(handle, &change_tracking_id, byte_offset, byte_length)));
         }
     }
 }

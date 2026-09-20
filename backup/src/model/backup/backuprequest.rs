@@ -11,4 +11,6 @@ pub struct BackupRequest {
     pub crash_consistency: ConsistencyLevel,
     pub destination: PathBuf,
     pub differential_backup_base: Option<VirtualSystemReferencePoint>,
+    pub differential_backup_base_manifest_id: Option<String>,
+    pub progress_sender: Option<tokio::sync::watch::Sender<BackupProgress>>,
 }

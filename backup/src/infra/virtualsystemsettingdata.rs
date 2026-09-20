@@ -1,7 +1,7 @@
-use std::{fmt, path::PathBuf};
-use serde::{Deserialize, Deserializer};
-use uuid::Uuid;
 use crate::infra::*;
+use serde::{Deserialize, Deserializer};
+use std::{fmt, path::PathBuf};
+use uuid::Uuid;
 
 #[derive(Clone)]
 pub(crate) struct VirtualSystemSettingData {

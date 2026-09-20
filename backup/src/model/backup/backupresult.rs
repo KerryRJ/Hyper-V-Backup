@@ -9,5 +9,6 @@ pub struct BackupResult {
     pub virtual_machine: VirtualMachine,
     pub destination: PathBuf,
     pub reference_point: VirtualSystemReferencePoint,
+    pub manifest_id: String,
     pub completed_at: DateTime<Utc>,
 }

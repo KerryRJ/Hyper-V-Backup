@@ -26,4 +26,6 @@ pub enum Error {
     VirtualDisk(#[from] windows::core::Error),
     #[error("Hyper-V WMI operation failed: {0}")]
     Wmi(#[from] wmi::WMIError),
+    #[error("Backup repository operation failed: {0}")]
+    Repository(String),
 }

@@ -1,8 +1,8 @@
+use super::*;
+use crate::infra::InstanceId;
+use serde::{Deserialize, Deserializer};
 use std::collections::HashMap;
 use std::fmt;
-use serde::{Deserialize, Deserializer};
-use crate::infra::InstanceId;
-use super::*;
 
 #[derive(Clone)]
 pub(crate) struct VirtualHardDiskSettingData {
@@ -53,6 +53,10 @@ impl fmt::Debug for VirtualHardDiskSettingData {
 }
 
 impl VirtualHardDiskSettingData {
+    pub(crate) fn virtual_disk_id(&self) -> &VirtualDiskId {
+        &self.virtual_disk_id
+    }
+
     pub(crate) fn max_internal_size(&self) -> u64 {
         self.max_internal_size
     }
@@ -63,11 +67,7 @@ impl VirtualHardDiskSettingData {
 
     pub(crate) fn from_embedded_xml(xml: &str) -> Result<Self, String> {
         let instance: EmbeddedInstance = quick_xml::de::from_str(xml).map_err(|error| error.to_string())?;
-        let properties = instance
-            .properties
-            .into_iter()
-            .filter_map(|property| property.value.map(|value| (property.name, value)))
-            .collect::<HashMap<_, _>>();
+        let properties = instance.properties.into_iter().filter_map(|property| property.value.map(|value| (property.name, value))).collect::<HashMap<_, _>>();
 
         Ok(Self {
             block_size: parse_required(&properties, "BlockSize")?,
@@ -80,18 +80,12 @@ impl VirtualHardDiskSettingData {
             is_pmem_compatible: parse_bool_required(&properties, "IsPmemCompatible")?,
             logical_sector_size: parse_required(&properties, "LogicalSectorSize")?,
             max_internal_size: parse_required(&properties, "MaxInternalSize")?,
-            parent_identifier: optional(&properties, "ParentIdentifier")
-                .filter(|value| !value.is_empty())
-                .map(ParentId::parse_str)
-                .transpose()
-                .map_err(|error| error.to_string())?,
+            parent_identifier: optional(&properties, "ParentIdentifier").filter(|value| !value.is_empty()).map(ParentId::parse_str).transpose().map_err(|error| error.to_string())?,
             parent_path: required(&properties, "ParentPath")?.to_owned().into(),
             parent_timestamp: None,
             path: required(&properties, "Path")?.to_owned().into(),
             physical_sector_size: parse_required(&properties, "PhysicalSectorSize")?,
-            pmem_address_abstraction_type: parse_required::<u16>(&properties, "PmemAddressAbstractionType")?
-                .try_into()
-                .map_err(|error| format!("PmemAddressAbstractionType is invalid: {error}"))?,
+            pmem_address_abstraction_type: parse_required::<u16>(&properties, "PmemAddressAbstractionType")?.try_into().map_err(|error| format!("PmemAddressAbstractionType is invalid: {error}"))?,
             _type: parse_required::<u16>(&properties, "Type")?.try_into().map_err(|error| format!("Type is invalid: {error}"))?,
             virtual_disk_id: required(&properties, "VirtualDiskId")?.to_owned().into(),
         })
@@ -162,12 +156,7 @@ impl<'de> Deserialize<'de> for VirtualHardDiskSettingData {
             is_pmem_compatible: output.IsPmemCompatible,
             logical_sector_size: output.LogicalSectorSize,
             max_internal_size: output.MaxInternalSize,
-            parent_identifier: output
-                .ParentIdentifier
-                .filter(|value| !value.is_empty())
-                .map(|value| ParentId::parse_str(&value))
-                .transpose()
-                .map_err(serde::de::Error::custom)?,
+            parent_identifier: output.ParentIdentifier.filter(|value| !value.is_empty()).map(|value| ParentId::parse_str(&value)).transpose().map_err(serde::de::Error::custom)?,
             parent_path: output.ParentPath.into(),
             parent_timestamp: output.ParentTimestamp.map(|value| value.0.with_timezone(&chrono::Utc)),
             path: output.Path.into(),

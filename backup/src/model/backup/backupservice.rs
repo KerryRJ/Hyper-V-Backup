@@ -1,12 +1,10 @@
 use super::*;
 use crate::infra::*;
 use crate::model::*;
-use chrono::{Local, Utc};
+use chrono::Utc;
 use futures::StreamExt;
-use futures::stream;
 use std::ffi::OsStr;
-use std::path::{Path, PathBuf};
-use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
+use std::path::Path;
 
 pub struct BackupService {
     snapshot_service: VirtualSystemSnapshotService,
@@ -108,12 +106,11 @@ impl BackupService {
     // }
 
     pub async fn backup(&self, request: BackupRequest) -> Result<BackupResult, Error> {
+        let started_at = Utc::now();
+        let elapsed = std::time::Instant::now();
         let virtual_machine = request.virtual_machine;
         let virtual_machine_name = virtual_machine.element_name.clone();
         let is_incremental = request.differential_backup_base.is_some();
-        let backup_kind = if is_incremental { "incremental" } else { "full" };
-        let backup_timestamp = Local::now().format("%Y%m%d-%H%M%S").to_string();
-        let destination_directory = request.destination.join(&virtual_machine_name);
         log::info!("Starting {} backup for virtual machine name {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name);
         let snapshot_settings = SnapshotSettings {
             properties: vec![
@@ -130,6 +127,13 @@ impl BackupService {
         let snapshot = self.snapshot_service.create(&virtual_machine, Some((&snapshot_settings).into()), request.snapshot_type, None).await?;
         log::debug!("Created backup snapshot {snapshot:#?} for virtual machine name {virtual_machine_name}");
         let result = async {
+            let repository = BackupRepository::open(&request.destination).await?;
+            let mut disk_manifests = Vec::new();
+            let parent_manifest = match request.differential_backup_base_manifest_id.as_deref() {
+                Some(manifest_id) => Some(repository.read_manifest(manifest_id).await?),
+                None if is_incremental => return Err(Error::InvalidBackupRequest("incremental backup requires a parent manifest id")),
+                None => None,
+            };
             let storage_allocation_setting_data = self.snapshot_service.storage_allocation_setting_data(&snapshot).await?;
             log::debug!("StorageAllocationSettingData returned for snapshot {}: {storage_allocation_setting_data:#?}", snapshot.path.as_str(),);
             let mut virtual_hard_disk_settings = Vec::new();
@@ -144,74 +148,53 @@ impl BackupService {
                 }
             }
             log::debug!("Virtual hard disk settings returned for snapshot {}: {virtual_hard_disk_settings:#?}", snapshot.path.as_str());
+            let total_bytes = virtual_hard_disk_settings.iter().map(|setting| std::fs::metadata(setting.path.as_str()).map(|metadata| metadata.len())).collect::<Result<Vec<_>, _>>()?.into_iter().sum();
+            let mut completed_bytes = 0;
+            if let Some(progress_sender) = request.progress_sender.as_ref() {
+                let _ = progress_sender.send(BackupProgress::new(0, total_bytes));
+            }
             let differential_backup_base = request.differential_backup_base.as_ref();
             for (index, virtual_hard_disk_setting) in virtual_hard_disk_settings.iter().enumerate() {
                 log::debug!("Opening virtual hard disk {}", virtual_hard_disk_setting.path.as_str());
                 let virtual_disk = VirtualDisk::open(virtual_hard_disk_setting).await?;
                 match differential_backup_base {
                     None => {
-                        log::info!("No differential backup base; streaming full virtual disk {}", virtual_hard_disk_setting.path.as_str());
-                        const FULL_DISK_RANGE_SIZE: u64 = 64 * 1024 * 1024;
+                        log::info!("No differential backup base; storing full virtual disk {} as repository chunks", virtual_hard_disk_setting.path.as_str());
                         let disk_size = std::fs::metadata(virtual_hard_disk_setting.path.as_str())?.len();
-                        let mut ranges = Box::pin(stream::unfold(0u64, move |byte_offset| async move {
-                            if byte_offset >= disk_size {
-                                return None;
-                            }
-                            let byte_length = FULL_DISK_RANGE_SIZE.min(disk_size - byte_offset);
-                            Some((
-                                Ok::<VirtualDiskRange, windows::core::Error>(VirtualDiskRange { byte_offset, byte_length }),
-                                byte_offset + byte_length,
-                            ))
-                        }));
                         let virtual_disk_path = Path::new(virtual_hard_disk_setting.path.as_str());
-                        let virtual_disk_stem = virtual_disk_path
-                            .file_stem()
-                            .ok_or(Error::InvalidBackupRequest("virtual hard disk path has no file name"))?;
-                        let destination_file_name = match virtual_disk_path.extension() {
-                            Some(extension) => format!(
-                                "{}-{backup_kind}-{backup_timestamp}.{}",
-                                virtual_disk_stem.to_string_lossy(),
-                                extension.to_string_lossy()
-                            ),
-                            None => format!("{}-{backup_kind}-{backup_timestamp}", virtual_disk_stem.to_string_lossy()),
-                        };
-                        let destination_path = destination_directory.join(destination_file_name);
-                        tokio::fs::create_dir_all(&destination_directory).await?;
-                        let mut source = tokio::fs::File::open(virtual_hard_disk_setting.path.as_str()).await?;
-                        let source_length = source.metadata().await?.len();
-                        let mut destination_file = tokio::fs::File::create(&destination_path).await?;
-                        destination_file.set_len(source_length).await?;
-                        log::debug!("Streaming virtual disk {} to {}", virtual_hard_disk_setting.path.as_str(), destination_path.display());
-                        while let Some(range) = ranges.next().await {
-                            let range = range?;
-                            source.seek(std::io::SeekFrom::Start(range.byte_offset)).await?;
-                            destination_file.seek(std::io::SeekFrom::Start(range.byte_offset)).await?;
-                            let mut remaining = range.byte_length;
-                            let mut buffer = vec![0u8; 1024 * 1024];
-                            while remaining > 0 {
-                                let read_length = remaining.min(buffer.len() as u64) as usize;
-                                source.read_exact(&mut buffer[..read_length]).await?;
-                                destination_file.write_all(&buffer[..read_length]).await?;
-                                remaining -= read_length as u64;
-                            }
-                        }
+                        let disk_manifest = repository.store_full_disk(virtual_disk_path, virtual_hard_disk_setting.virtual_disk_id().to_string(), disk_size, &mut completed_bytes, total_bytes, request.progress_sender.as_ref()).await?;
+                        disk_manifests.push(disk_manifest);
                     }
                     Some(differential_backup_base) => {
-                        let change_tracking_id = differential_backup_base
-                            .resilient_change_tracking_identifiers
-                            .get(index)
-                            .ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
+                        let parent_manifest = parent_manifest.as_ref().ok_or(Error::InvalidBackupRequest("incremental backup requires a parent manifest"))?;
+                        let parent_disk = parent_manifest
+                            .disks
+                            .iter()
+                            .find(|disk| disk.disk_id == virtual_hard_disk_setting.virtual_disk_id().to_string())
+                            .ok_or(Error::InvalidBackupRequest("parent manifest is missing a virtual disk"))?;
+                        let change_tracking_id = differential_backup_base.resilient_change_tracking_identifiers.get(index).ok_or(Error::InvalidBackupRequest("reference point is missing a disk change-tracking identifier"))?;
                         let change_tracking_id = change_tracking_id.to_string();
                         let mut changed_ranges = virtual_disk.virtual_disk_changes(OsStr::new(&change_tracking_id), u64::MAX)?;
+                        let mut changed_ranges_for_repository = Vec::new();
                         while let Some(range) = changed_ranges.next().await {
                             let range = range?;
-                            log::debug!(
-                                "Changed range {}..{} is ready for repository streaming",
-                                range.byte_offset,
-                                range.byte_offset + range.byte_length
-                            );
+                            log::debug!("Changed range {}..{} is ready for repository streaming", range.byte_offset, range.byte_offset + range.byte_length);
+                            changed_ranges_for_repository.push(range);
                         }
-                        return Err(Error::BackupBackendUnavailable);
+                        let disk_size = std::fs::metadata(virtual_hard_disk_setting.path.as_str())?.len();
+                        let disk_manifest = repository
+                            .store_incremental_disk(
+                                Path::new(virtual_hard_disk_setting.path.as_str()),
+                                virtual_hard_disk_setting.virtual_disk_id().to_string(),
+                                disk_size,
+                                parent_disk,
+                                &changed_ranges_for_repository,
+                                &mut completed_bytes,
+                                total_bytes,
+                                request.progress_sender.as_ref(),
+                            )
+                            .await?;
+                        disk_manifests.push(disk_manifest);
                     }
                 }
             }
@@ -223,14 +206,40 @@ impl BackupService {
                 }],
             };
             let reference_point = self.snapshot_service.convert_to_reference_point(snapshot.clone(), Some((&reference_point_settings).into()), None).await?;
-            // TODO: Store the reference point in the backup repository
-            log::info!("Completed {} backup for virtual machine name {} with reference point {}", if is_incremental { "incremental" } else { "full" }, virtual_machine_name, reference_point.path.as_str());
+            let backup_id = BackupId::new_v4();
+            let manifest = BackupManifest {
+                schema_version: 1,
+                backup_id,
+                virtual_machine_id: virtual_machine.name,
+                created_at: Utc::now(),
+                parent_manifest: request.differential_backup_base_manifest_id.clone().map(super::repository::ChunkId::from_manifest_id),
+                disks: disk_manifests,
+                reference_point: ReferencePointMetadata {
+                    path: reference_point.path.as_str().to_owned(),
+                    instance_id: reference_point.instance_id_string(),
+                    resilient_change_tracking_identifiers: reference_point.resilient_change_tracking_identifier_strings(),
+                },
+            };
+            let completed_at = Utc::now();
+            let duration_ms = u64::try_from(elapsed.elapsed().as_millis()).unwrap_or(u64::MAX);
+            let manifest_id = repository.write_manifest(&manifest, started_at, completed_at, duration_ms).await?;
+            if let Some(progress_sender) = request.progress_sender.as_ref() {
+                let _ = progress_sender.send(BackupProgress::new(total_bytes, total_bytes));
+            }
+            log::info!(
+                "Completed {} backup for virtual machine name {} in {} ms with reference point {}",
+                if is_incremental { "incremental" } else { "full" },
+                virtual_machine_name,
+                duration_ms,
+                reference_point.path.as_str()
+            );
             Ok::<BackupResult, Error>(BackupResult {
-                backup_id: BackupId::new_v4(),
+                backup_id,
                 virtual_machine: virtual_machine,
                 destination: request.destination,
                 reference_point: reference_point,
-                completed_at: Utc::now(),
+                manifest_id: manifest_id.to_string(),
+                completed_at,
             })
         }
         .await;
@@ -250,8 +259,37 @@ impl BackupService {
 #[cfg(all(test, windows))]
 mod tests {
     use std::path::PathBuf;
+    use tokio::sync::watch;
 
     use super::*;
+
+    async fn backup_with_progress(service: &BackupService, request: BackupRequest, label: &str) -> Result<BackupResult, Error> {
+        let (progress_sender, mut progress_receiver) = watch::channel(BackupProgress { completed_bytes: 0, total_bytes: 0, percent: 0 });
+        let request = BackupRequest { progress_sender: Some(progress_sender), ..request };
+        let backup = service.backup(request);
+        tokio::pin!(backup);
+        let mut last_percent = u8::MAX;
+
+        loop {
+            tokio::select! {
+                result = &mut backup => {
+                    let progress = progress_receiver.borrow().clone();
+                    println!("{label} progress: {}% ({}/{} bytes)", progress.percent, progress.completed_bytes, progress.total_bytes);
+                    return result;
+                }
+                changed = progress_receiver.changed() => {
+                    if changed.is_err() {
+                        continue;
+                    }
+                    let progress = progress_receiver.borrow().clone();
+                    if progress.percent != last_percent {
+                        println!("{label} progress: {}% ({}/{} bytes)", progress.percent, progress.completed_bytes, progress.total_bytes);
+                        last_percent = progress.percent;
+                    }
+                }
+            }
+        }
+    }
 
     #[tokio::test]
     #[ignore = "requires a configured Hyper-V VM and writable export directory"]
@@ -274,8 +312,10 @@ mod tests {
             crash_consistency: ConsistencyLevel::Crash,
             destination: destination.clone(),
             differential_backup_base: None,
+            differential_backup_base_manifest_id: None,
+            progress_sender: None,
         };
-        let full_result = service.backup(backup_request).await.expect("full backup should complete");
+        let full_result = backup_with_progress(&service, backup_request, "full backup").await.expect("full backup should complete");
 
         assert_eq!(full_result.virtual_machine.name, virtual_machine_id);
         assert_eq!(full_result.destination, destination);
@@ -284,16 +324,21 @@ mod tests {
         let full_reference_point = full_result.reference_point;
 
         let incremental_destination = destination;
-        let incremental_result = service
-            .backup(BackupRequest {
+        let incremental_result = backup_with_progress(
+            &service,
+            BackupRequest {
                 virtual_machine,
                 snapshot_type: SnapshotType::VendorSpecific(32768),
                 crash_consistency: ConsistencyLevel::Crash,
                 destination: incremental_destination.clone(),
                 differential_backup_base: Some(full_reference_point.clone()),
-            })
-            .await
-            .expect("incremental backup should complete");
+                differential_backup_base_manifest_id: Some(full_result.manifest_id.clone()),
+                progress_sender: None,
+            },
+            "incremental backup",
+        )
+        .await
+        .expect("incremental backup should complete");
 
         assert_eq!(incremental_result.virtual_machine.name, virtual_machine_id);
         assert_eq!(incremental_result.destination, incremental_destination);
@@ -320,16 +365,21 @@ mod tests {
             image_management_service: ImageManagementService::new(connection.clone()).expect("Hyper-V image management service should be available"),
         };
 
-        let result = service
-            .backup(BackupRequest {
+        let result = backup_with_progress(
+            &service,
+            BackupRequest {
                 virtual_machine,
                 snapshot_type: SnapshotType::VendorSpecific(32768),
                 crash_consistency: ConsistencyLevel::Crash,
                 destination: destination.clone(),
                 differential_backup_base: None,
-            })
-            .await
-            .expect("new backup should complete");
+                differential_backup_base_manifest_id: None,
+                progress_sender: None,
+            },
+            "backup",
+        )
+        .await
+        .expect("new backup should complete");
 
         assert_eq!(result.virtual_machine.name, virtual_machine_id);
         assert_eq!(result.destination, destination);

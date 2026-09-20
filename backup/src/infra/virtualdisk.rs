@@ -3,7 +3,7 @@ use std::os::windows::ffi::OsStrExt;
 use futures::Stream;
 use windows::Win32::Foundation::*;
 use windows::Win32::Storage::FileSystem::{self, CopyFileW, CreateFileW, ReadFile, SetFilePointerEx, WriteFile};
-use windows::Win32::Storage::Vhd::{self, OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_PARAMETERS, OPEN_VIRTUAL_DISK_PARAMETERS_0, QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE, VIRTUAL_STORAGE_TYPE};
+use windows::Win32::Storage::Vhd::{self, OPEN_VIRTUAL_DISK_FLAG_NONE, OPEN_VIRTUAL_DISK_PARAMETERS, OPEN_VIRTUAL_DISK_PARAMETERS_0, QUERY_CHANGES_VIRTUAL_DISK_FLAG_NONE, VIRTUAL_DISK_ACCESS_NONE, VIRTUAL_DISK_ACCESS_READ, VIRTUAL_STORAGE_TYPE};
 use windows::Win32::Storage::Vhd::{GetVirtualDiskInformation, OpenVirtualDisk, QueryChangesVirtualDisk, SetVirtualDiskInformation};
 use windows::Win32::System::Threading::GetCurrentProcess;
 use windows::core::PCWSTR;
@@ -36,7 +36,7 @@ impl VirtualDisk {
         let mut handle = HANDLE::default();
         let path = wide_path(OsStr::new(virtual_hard_disk_setting_data.path.as_str()));
         unsafe {
-            OpenVirtualDisk(&virtual_storage_type, PCWSTR(path.as_ptr()), Vhd::VIRTUAL_DISK_ACCESS_NONE, OPEN_VIRTUAL_DISK_FLAG_NONE, Some(&open_virtual_disk_parameters), &mut handle).ok()?;
+            OpenVirtualDisk(&virtual_storage_type, PCWSTR(path.as_ptr()), VIRTUAL_DISK_ACCESS_NONE, OPEN_VIRTUAL_DISK_FLAG_NONE, Some(&open_virtual_disk_parameters), &mut handle).ok()?;
         }
         Ok(Self { handle })
     }

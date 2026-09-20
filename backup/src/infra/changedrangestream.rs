@@ -90,7 +90,7 @@ impl Stream for ChangedRangeStream<'_> {
             let byte_length = self.byte_length - byte_offset;
             self.worker = Some(tokio::task::spawn_blocking(move || {
                 let handle = super::FileHandle(super::HANDLE(handle as *mut c_void));
-                VirtualDisk::query_change_batch(handle.0, &change_tracking_id, byte_offset, byte_length)
+                VirtualDisk::query_virtual_disk_range_changes(handle.0, &change_tracking_id, byte_offset, byte_length)
             }));
         }
     }

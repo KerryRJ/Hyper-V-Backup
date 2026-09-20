@@ -52,12 +52,6 @@ impl VirtualDisk {
         Ok(ChangedRangeStream::new(self, change_tracking_id, bytes))
     }
 
-    // pub(crate) fn copy_file<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q) -> std::result::Result<(), windows::core::Error> {
-    //     let source = wide_path(source);
-    //     let destination = wide_path(destination);
-    //     unsafe { CopyFileW(PCWSTR::from_raw(source.as_ptr()), PCWSTR::from_raw(destination.as_ptr()), false) }
-    // }
-
     // pub(crate) fn copy_ranges<P: AsRef<OsStr>, Q: AsRef<OsStr>>(source: P, destination: Q, ranges: &[ChangedRange]) -> std::result::Result<u64, windows::core::Error> {
     //     let source = wide_path(source);
     //     let destination = wide_path(destination);
@@ -111,25 +105,7 @@ impl VirtualDisk {
     //     Ok(())
     // }
 
-    // pub(crate) fn query_changes(&self, change_tracking_id: &OsStr, byte_length: u64) -> std::result::Result<Vec<ChangedRange>, windows::core::Error> {
-    //     let mut encoded = wide_path(change_tracking_id);
-    //     let mut changes = Vec::new();
-    //     let mut byte_offset = 0u64;
-
-    //     while byte_offset < byte_length {
-    //         let (ranges, processed_length) = Self::query_change_batch(self.handle, &encoded, byte_offset, byte_length - byte_offset)?;
-    //         changes.extend(ranges);
-    //         if processed_length == 0 {
-    //             break;
-    //         }
-    //         byte_offset = byte_offset.saturating_add(processed_length);
-    //     }
-
-    //     encoded.clear();
-    //     Ok(changes)
-    // }
-
-    fn query_change_batch(handle: HANDLE, change_tracking_id: &[u16], byte_offset: u64, byte_length: u64) -> std::result::Result<(Vec<VirtualDiskRange>, u64), windows::core::Error> {
+    fn query_virtual_disk_range_changes(handle: HANDLE, change_tracking_id: &[u16], byte_offset: u64, byte_length: u64) -> std::result::Result<(Vec<VirtualDiskRange>, u64), windows::core::Error> {
         let mut ranges = vec![Vhd::QUERY_CHANGES_VIRTUAL_DISK_RANGE::default(); 256];
         let mut range_count = ranges.len() as u32;
         let mut processed_length = 0u64;

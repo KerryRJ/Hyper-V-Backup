@@ -11,6 +11,25 @@ pub struct BackupService {
     image_management_service: ImageManagementService,
 }
 
+fn format_duration(duration: std::time::Duration) -> String {
+    let total_seconds = duration.as_secs();
+    let days = total_seconds / 86_400;
+    let hours = (total_seconds % 86_400) / 3_600;
+    let minutes = (total_seconds % 3_600) / 60;
+    let seconds = total_seconds % 60;
+    let milliseconds = duration.subsec_millis();
+
+    if days > 0 {
+        format!("{days}d {hours}h {minutes}m {seconds:02}.{milliseconds:03}s")
+    } else if hours > 0 {
+        format!("{hours}h {minutes}m {seconds:02}.{milliseconds:03}s")
+    } else if minutes > 0 {
+        format!("{minutes}m {seconds:02}.{milliseconds:03}s")
+    } else {
+        format!("{seconds}.{milliseconds:03}s")
+    }
+}
+
 impl BackupService {
     // pub async fn backup(&self, request: BackupRequest) -> Result<BackupResult, Error> {
     //     let virtual_machine = request.virtual_machine;
@@ -221,10 +240,10 @@ impl BackupService {
                 let _ = progress_sender.send(BackupProgress::new(total_bytes, total_bytes));
             }
             log::info!(
-                "Completed {} backup for virtual machine name {} in {:?} ({} ms) with reference point {}",
+                "Completed {} backup for virtual machine name {} in {} ({} ms) with reference point {}",
                 if is_incremental { "incremental" } else { "full" },
                 virtual_machine_name,
-                duration,
+                format_duration(duration),
                 duration_ms,
                 reference_point.path.as_str()
             );
